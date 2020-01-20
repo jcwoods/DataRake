@@ -74,7 +74,10 @@ class RakePattern(object):
     def match(self, text, verbose=False):
         mset = []
         for m in self.pattern.findall(text, re.IGNORECASE):
-            mset.append(m[self.pos])
+            if isinstance(m, tuple):
+                mset.append(m[self.pos])
+            else:
+                mset.append(m)
 
         return mset
 
@@ -117,11 +120,11 @@ class RakeMatch(object):
         return
 
 
-class RakeDomainName(RakePattern):
+class RakeHostname(RakePattern):
     '''
-    A RakeDomainName acts as a 'root', meaning that it will match any valid
-    hosts in the domain which share the root value.  For example,
-    root="abc.com" will match not only "abc.com", but also "xyz.abc.com" and
+    A RakeHostname acts as a 'root', meaning that it will match any valid hosts
+    in the domain which share the root value.  For example, root="abc.com"
+    will match not only "abc.com", but also "xyz.abc.com" and
     "foo.xyz.abc.com".
  
     A domain name may include A-Z, 0-9, and '-'.  The '-' may not appear at
@@ -131,10 +134,19 @@ class RakeDomainName(RakePattern):
     root) are supported.
     '''
 
-    def __init__(self, root):
-        rp = RakePattern.escapeLiteralString(root)
-        r = r'(([a-z1-9\-]+\.)*' + rp + ")"
-        RakePattern.__init__(self, r, 'domain')
+    def __init__(self, domain = None):
+        if domain is None:
+            d = RakePattern.escapeLiteralString(domain)
+            r = r'\b(([a-z1-9\-]+\.)+' + d + r')\b'
+        else:
+            # going to make an arbitrary call here... domain must be 2 or
+            # more "parts".  A name will need to be "host.d1.d2", We'll miss
+            # things like "localhost.localdomain" but that should be
+            # acceptable since we're not picking up 'a.b'-type symbols.  If
+            # you don't like this, change the "{2,}" below to a simple "+".
+            r = r'\b([a-z1-9\-]+(\.[a-z1-9\-]+){2,})\b'
+
+        RakePattern.__init__(self, r, 'hostname')
         return
 
 class RakeURL(RakePattern):
@@ -144,10 +156,10 @@ class RakeURL(RakePattern):
             xxx://xxx.xxx:ppp/zzz+
         '''
         if domain is None:
-            r = re.compile(r'\b([a-zA-Z]{2,6}://[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+(:\d+)?(/(\S*)?)?)\b')
+            r = r'\b([a-zA-Z]{2,6}://[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+(:\d+)?(/(\S*)?)?)\b'
         else:
             d = RakePattern.escapeLiteralString(domain)
-            r = re.compile(r'\b([a-zA-Z]{2,6}://([A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*\.)?' + d + '(:\d+)?(/(\S*)?)?)\b')
+            r = r'\b([a-zA-Z]{2,6}://([A-Za-z0-9_-]+\.)*' + d + r'(:\d+)?(/(\S*)?)?)\b'
 
         RakePattern.__init__(self, r, 'url')
         return
@@ -157,9 +169,9 @@ class RakeEmail(RakePattern):
     def __init__(self, domain = None):
         if domain is not None:
             d = RakePattern.escapeLiteralString(domain)
-            r = r'([a-zA-Z1-9_.\-]+@' + d + ")"
+            r = r'([a-zA-Z1-9_.\-]+@' + d + r')'
         else:
-            r = r'([a-zA-Z0-9_.\-]+@[A-Za-z0-9_\-](\.[A-Za-z0-9_\-])+)'
+            r = r'([a-zA-Z0-9_.\-]+@[A-Za-z0-9_\-]+(\.[A-Za-z0-9_\-]+)+)'
         RakePattern.__init__(self, r, 'email')
         return
 
@@ -189,7 +201,7 @@ def RakeFile(filename:str, rs:RakeSet):
     try:
         for line in fd:
             hits = rs.match(line)
-            if len(hits) > 0: findings.append(*hits)
+            if len(hits) > 0: findings.extend(hits)
     except UnicodeDecodeError:
         print("* Invalid file content: " + filename)
 
@@ -207,21 +219,9 @@ def main(args):
     if len(args) < 3:
         raise RuntimeError("Invalid command line arguments.")
 
-    #d = RakeDomainName(args[1])
-    ##e = RakeEmail(domain = args[1])
-    #e = RakeEmail()
-    #k1 = RakeKeyValue("password")
-    #k2 = RakeKeyValue("pass")
-    #k3 = RakeKeyValue("pw")
-    #k3 = RakeKeyValue("authtok")
-    #k4 = RakeKeyValue("token")
-    #k5 = RakeKeyValue("tok")
-    #e = RakeURL(domain = args[1])
-    #rs = RakeSet(d, e, k1, k2, k3, k4, k5, e)
-
     rs = RakeSet()
-    rs.add(RakeDomainName(args[1]))
-    rs.add(RakeEmail())
+    rs.add(RakeHostname(domain = args[1]))
+    rs.add(RakeEmail(domain = args[1]))
     rs.add(RakeKeyValue("username"))
     rs.add(RakeKeyValue("user"))
     rs.add(RakeKeyValue("uname"))
@@ -240,12 +240,6 @@ def main(args):
 
     print(str(findings))
 
-    #with open(args[2]) as f:
-    #    for line in f:
-    #        line = line.strip()
-    #        hits = rs.match(line)
-    #        if len(hits) > 0:
-    #            print(args[2] + ": " + str(hits))
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

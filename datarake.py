@@ -45,7 +45,7 @@ class RakePattern(object):
         '''
         if verbose: print(pattern)
 
-        self.pattern = re.compile(pattern) # pattern to be matched
+        self.pattern = re.compile(pattern, flags=re.IGNORECASE)
         self.ptype = ptype                 # pattern type
         self.pos = pos                     # position of match in output tuple
         return
@@ -73,11 +73,18 @@ class RakePattern(object):
 
     def match(self, text, verbose=False):
         mset = []
-        for m in self.pattern.findall(text, re.IGNORECASE):
+        if verbose:
+            print("* ptype:   " + self.ptype)
+            print("* pattern: " + str(self.pattern))
+
+        for m in self.pattern.findall(text):
             if isinstance(m, tuple):
-                mset.append(m[self.pos])
+                val = m[self.pos]
             else:
-                mset.append(m)
+                val = m
+
+            if verbose: print("+ hit:   " + str(val))
+            mset.append((self.ptype, val))
 
         return mset
 
@@ -185,11 +192,11 @@ class RakeKeyValue(RakePattern):
     def __init__(self, kval, n = 1, **kwargs):
         kv = RakePattern.escapeLiteralString(kval)
         kvp = r'(' + kv + r'\s*[:=]\s*(\S+))'
-        RakePattern.__init__(self, kvp, 'keyvalue:{}'.format(kvp), pos=1, **kwargs)
+        RakePattern.__init__(self, kvp, 'keyvalue:{}'.format(kval), pos=1, **kwargs)
         return
 
 
-def RakeFile(filename:str, rs:RakeSet):
+def RakeFile(filename:str, rs:RakeSet, verbose=False):
     findings = list()
 
     print("RakeFile: " + filename)
@@ -200,8 +207,12 @@ def RakeFile(filename:str, rs:RakeSet):
 
     try:
         for line in fd:
-            hits = rs.match(line)
+            if verbose: print("text:      " + line.strip())
+
+            hits = rs.match(line, verbose=verbose)
             if len(hits) > 0: findings.extend(hits)
+
+            if verbose: print("")
     except UnicodeDecodeError:
         print("* Invalid file content: " + filename)
 
@@ -236,7 +247,7 @@ def main(args):
 
     findings = list()
     for f in args[2:]:
-        findings.append(RakeFile(f, rs))
+        findings.append(RakeFile(f, rs, verbose=False))
 
     print(str(findings))
 

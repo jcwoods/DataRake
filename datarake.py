@@ -88,7 +88,7 @@ class RakePattern(object):
 
         return mset
 
-    
+
 class RakeSet(object):
     '''
     A wrapper (list) of RakePattern objects.  Each pattern in this list will
@@ -122,9 +122,16 @@ class RakeMatch(object):
     An offset of 1 is the first column of the line.
     '''
 
-    def __init__(self, path:str = None, file:str = None,
-                       line:int = 0, offset:int = 0):
+    #taggedhits.append(RakeMatch(file=filename, line=lineno, hit=h))
+    def __init__(self, file:str = None, line:int = 0, hit = None):
+        self.file = file
+        self.line = line
+        self.hit = hit
         return
+
+    def __str__(self):
+        #return "|".join((self.file, str(self.line), str(self.hit)))
+        return "|".join((self.file, str(self.line), self.hit[0], self.hit[1]))
 
 
 class RakeHostname(RakePattern):
@@ -142,7 +149,7 @@ class RakeHostname(RakePattern):
     '''
 
     def __init__(self, domain = None):
-        if domain is None:
+        if domain is not None:
             d = RakePattern.escapeLiteralString(domain)
             r = r'\b(([a-z1-9\-]+\.)+' + d + r')\b'
         else:
@@ -163,10 +170,10 @@ class RakeURL(RakePattern):
             xxx://xxx.xxx:ppp/zzz+
         '''
         if domain is None:
-            r = r'\b([a-zA-Z]{2,6}://[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)+(:\d+)?(/(\S*)?)?)\b'
+            r = r'\b([A-Z]{2,6}://([A-Z0-9%@+/=\-]+:[A-Z0-9%@+/=\-]+)?[A-Z0-9_-]+(\.[A-Z0-9_-]+)+(:\d+)?(/(\S*)?)?)\b'
         else:
             d = RakePattern.escapeLiteralString(domain)
-            r = r'\b([a-zA-Z]{2,6}://([A-Za-z0-9_-]+\.)*' + d + r'(:\d+)?(/(\S*)?)?)\b'
+            r = r'\b([A-Z]{2,6}://([A-Z0-9%@+/=\-]+:[A-Z0-9%@+/=\-]+)?([A-Z0-9_-]+\.)*' + d + r'(:\d+)?(/(\S*)?)?)\b'
 
         RakePattern.__init__(self, r, 'url')
         return
@@ -199,30 +206,37 @@ class RakeKeyValue(RakePattern):
 def RakeFile(filename:str, rs:RakeSet, verbose=False):
     findings = list()
 
-    print("RakeFile: " + filename)
     try:
         fd = open(filename, encoding="utf-8")
     except FileNotFoundError:
         return []
 
     try:
+        lineno = 1
         for line in fd:
             if verbose: print("text:      " + line.strip())
 
             hits = rs.match(line, verbose=verbose)
-            if len(hits) > 0: findings.extend(hits)
+            if len(hits) > 0:
+                taggedhits = list()
+                for h in hits:
+                    taggedhits.append(RakeMatch(file=filename, line=lineno, hit=h))
+
+                findings.extend(taggedhits)
 
             if verbose: print("")
+            lineno += 1
     except UnicodeDecodeError:
-        print("* Invalid file content: " + filename)
+        if verbose: print("* Invalid file content: " + filename)
+    
 
     fd.close()
 
-    print(str(findings))
     if len(findings) > 0:
-        findings = list(dict.fromkeys(findings))
+        for f in findings:
+            print(str(f))
 
-    return findings
+    return
 
 
 def main(args):
@@ -245,11 +259,8 @@ def main(args):
     rs.add(RakeKeyValue("tok"))
     rs.add(RakeURL(domain = args[1]))
 
-    findings = list()
     for f in args[2:]:
-        findings.append(RakeFile(f, rs, verbose=False))
-
-    print(str(findings))
+        RakeFile(f, rs, verbose=False)
 
 
 if __name__ == "__main__":

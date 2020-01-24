@@ -12,9 +12,10 @@ For recursive operation, consider:
 Pipe-delimited output includes filename, line number, match type, and match value.
 
 TODO:
-* Add a configuration file.
+* Package as a real python module ;)
+* Add a configuration file and command line options.
 * Add native directory scanning (break reliance on external find command)
 * Support whitelist or blacklist of file extensions.
 * Support "git clone" of repositories rather than local files only.
 * Include scanning for JDBC URLs
-* Include "high entropy" values (nod to trufflehog).
+* Include "high entropy" values (nod to truffleHog).

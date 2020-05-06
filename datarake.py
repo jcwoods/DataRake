@@ -1,3 +1,4 @@
+import base64
 import re
 import sys
 
@@ -122,7 +123,6 @@ class RakeMatch(object):
     An offset of 1 is the first column of the line.
     '''
 
-    #taggedhits.append(RakeMatch(file=filename, line=lineno, hit=h))
     def __init__(self, file:str = None, line:int = 0, hit = None):
         self.file = file
         self.line = line
@@ -130,7 +130,6 @@ class RakeMatch(object):
         return
 
     def __str__(self):
-        #return "|".join((self.file, str(self.line), str(self.hit)))
         return "|".join((self.file, str(self.line), self.hit[0], self.hit[1]))
 
 
@@ -203,6 +202,40 @@ class RakeKeyValue(RakePattern):
         return
 
 
+class RakeBase64(RakePattern):
+    def __init__(self, minlength:int=16, encoding:str = 'utf-8'):
+        '''
+        a pattern to match Base64 encoded values.
+        minlength will set the minimum length of the matched string.
+        encoding will require that the data can be successfully read using the
+          given coding.  If encoding is None, no attempt to decode the data will be made.
+        '''
+        r = r'\b([A-Za-z0-9+/]{' + str(minlength) + r',}={0,2})\b'
+
+        RakePattern.__init__(self, r, 'base64')
+        self.encoding = encoding
+        return
+
+    def match(self, text:str, verbose:bool=False):
+        mset = []
+        if verbose:
+            print("* ptype:   " + self.ptype)
+            print("* pattern: " + str(self.pattern))
+
+        for m in self.pattern.findall(text):
+            # we may or may not have something juicy... let's attempt to
+            # decode it and see if it checks out!
+            if self.encoding is not None:
+                try:
+                    val = base64.b64decode(m, validate=True).decode(self.encoding)
+                except:
+                    continue
+
+            mset.append((self.ptype, val))
+
+        return mset
+
+
 def RakeFile(filename:str, rs:RakeSet, verbose=False):
     findings = list()
 
@@ -250,14 +283,15 @@ def main(args):
     rs.add(RakeKeyValue("username"))
     rs.add(RakeKeyValue("user"))
     rs.add(RakeKeyValue("uname"))
-    rs.add(RakeKeyValue("un"))
+    #rs.add(RakeKeyValue("un"))
     rs.add(RakeKeyValue("password"))
     rs.add(RakeKeyValue("pass"))
-    rs.add(RakeKeyValue("pw"))
+    #rs.add(RakeKeyValue("pw"))
     rs.add(RakeKeyValue("authtok"))
     rs.add(RakeKeyValue("token"))
     rs.add(RakeKeyValue("tok"))
     rs.add(RakeURL(domain = args[1]))
+    rs.add(RakeBase64(encoding=None))
 
     for f in args[2:]:
         RakeFile(f, rs, verbose=False)

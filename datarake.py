@@ -214,17 +214,21 @@ class RakeHostname(RakePattern):
         return
 
 class RakeURL(RakePattern):
-    def __init__(self, domain=None):
+    def __init__(self, credentials=True):
         '''
         a very crude pattern to match URLs, roughly of the pattern:
-            xxx://xxx.xxx:ppp/zzz+
+            xxx://user:pass@xxx.xxx:ppp/zzz+
         '''
-
-        if domain is None:
-            r = r'\b([A-Z]{2,6}://([A-Z0-9%@+/=\-]+:[A-Z0-9%@+/=\-]+)?[A-Z0-9_-]+(\.[A-Z0-9_-]+)+(:\d+)?(/(\S*)?)?)\b'
+        if credentials:
+            r = r'\b([a-z]{2,6}://[a-z0-9%+/=\-]+:[a-z0-9%+/=\-]+@[A-Z0-9_-]+(\.[A-Z0-9_-]+)+(:\d{1,5})?(/(\S*)?)?)\b'
         else:
-            d = RakePattern.escapeLiteralString(domain)
-            r = r'\b([A-Z]{2,6}://([A-Z0-9%@+/=\-]+:[A-Z0-9%@+/=\-]+)?([A-Z0-9_-]+\.)*' + d + r'(:\d+)?(/(\S*)?)?)\b'
+            r = r'\b([a-z]{2,6}://[a-z0-9_-]+(\.[a-z0-9_-]+)+(:\d{1,5})?(/(\S*)?)?)\b'
+
+        #if domain is None:
+        #    r = r'\b([A-Z]{2,6}://([A-Z0-9%@+/=\-]+:[A-Z0-9%@+/=\-]+)?[A-Z0-9_-]+(\.[A-Z0-9_-]+)+(:\d+)?(/(\S*)?)?)\b'
+        #else:
+        #    d = RakePattern.escapeLiteralString(domain)
+        #    r = r'\b([A-Z]{2,6}://([A-Z0-9%@+/=\-]+:[A-Z0-9%@+/=\-]+)?([A-Z0-9_-]+\.)*' + d + r'(:\d+)?(/(\S*)?)?)\b'
 
         RakePattern.__init__(self, r, 'url')
         return
@@ -371,9 +375,9 @@ def main(args):
         rs.add(RakeHostname(domain = args[1]))
         rs.add(RakeEmail(domain = args[1]))
 
-    #rs.add(RakeURL(domain = args[1]))
-    #rs.add(RakeEntropy())
+    #rs.add(RakeEntropy(n=32, threshold=4.875))
 
+    rs.add(RakeURL())
     rs.add(RakeBase64(encoding='utf-8'))
     rs.add(RakePassword())
     rs.add(RakeToken())

@@ -42,14 +42,18 @@ class RakePattern(object):
     '''
     special = '.^$*?\{\}()[]\\\|'  # . ^ $ * + ? { } [ ] \ | ( )
 
-    def __init__(self, pattern, ptype, pos = 0, verbose=False):
+    def __init__(self, pattern, ptype, pos = 0, ignorecase=True, verbose=False):
         '''
         pattern is the pattern to be matched in the input text.
         ptype is the type of the pattern, supplied by the subclass.
         '''
         if verbose: print(pattern)
 
-        self.pattern = re.compile(pattern, flags=re.IGNORECASE)
+        flags = 0
+        if ignorecase:
+            flags = re.IGNORECASE
+
+        self.pattern = re.compile(pattern, flags=flags)
         self.ptype = ptype                 # pattern type
         self.pos = pos                     # position of match in output tuple
         return
@@ -80,6 +84,7 @@ class RakePattern(object):
         if verbose:
             print("* ptype:   " + self.ptype)
             print("* pattern: " + str(self.pattern))
+            print("* text: " + str(text))
 
         for m in self.pattern.findall(text):
             if isinstance(m, tuple):
@@ -211,9 +216,10 @@ class RakeHostname(RakePattern):
 class RakeURL(RakePattern):
     def __init__(self, domain=None):
         '''
-        a very crude pattern to match URLS, roughly of the pattern:
+        a very crude pattern to match URLs, roughly of the pattern:
             xxx://xxx.xxx:ppp/zzz+
         '''
+
         if domain is None:
             r = r'\b([A-Z]{2,6}://([A-Z0-9%@+/=\-]+:[A-Z0-9%@+/=\-]+)?[A-Z0-9_-]+(\.[A-Z0-9_-]+)+(:\d+)?(/(\S*)?)?)\b'
         else:
@@ -223,6 +229,25 @@ class RakeURL(RakePattern):
         RakePattern.__init__(self, r, 'url')
         return
 
+class RakePassword(RakePattern):
+    '''
+    A basic password matching pattern.
+    '''
+
+    def __init__(self, minlength:int=6):
+        r = r"(([\"']?)pass(w(ord)?)?(\2)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{"+str(minlength)+",}(\6))"
+        RakePattern.__init__(self, r, "password")
+        return
+
+class RakeToken(RakePattern):
+    '''
+    A basic auth token matching pattern.
+    '''
+
+    def __init__(self, minlength:int=6):
+        r = r"([\"']?)(auth)?tok(en)?(\1)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{"+str(minlength)+",}(\5)"
+        RakePattern.__init__(self, r, "token")
+        return
 
 class RakeEmail(RakePattern):
     def __init__(self, domain = None):
@@ -245,6 +270,21 @@ class RakeKeyValue(RakePattern):
         kv = RakePattern.escapeLiteralString(kval)
         kvp = r'(' + kv + r'\s*[:=]\s*(\S+))'
         RakePattern.__init__(self, kvp, 'keyvalue:{}'.format(kval), pos=1, **kwargs)
+        return
+
+
+class RakePrivateKey(RakePattern):
+    '''
+    Find PEM headers for private key files (SSH, X.509, etc).  One of:
+        -----BEGIN PRIVATE KEY-----
+        -----BEGIN RSA PRIVATE KEY-----
+        -----BEGIN DSA PRIVATE KEY-----
+        -----BEGIN EC PRIVATE KEY-----
+        -----BEGIN OPENSSH PRIVATE KEY-----
+    '''
+    def __init__(self, **kwargs):
+        kp = r'^-----BEGIN ((RSA|DSA|EC|OPENSSH) )?PRIVATE KEY-----$'
+        RakePattern.__init__(self, kp, 'privatekey', ignorecase=False, **kwargs)
         return
 
 
@@ -277,6 +317,7 @@ class RakeBase64(RakePattern):
                 except:
                     continue
 
+            if not val.isprintable(): continue
             mset.append((self.ptype, val))
 
         return mset
@@ -320,27 +361,28 @@ def RakeFile(filename:str, rs:RakeSet, verbose=False):
 
 def main(args):
 
-    if len(args) < 3:
+    if len(args) < 2:
         raise RuntimeError("Invalid command line arguments.")
 
     rs = RakeSet()
-    rs.add(RakeHostname(domain = args[1]))
-    rs.add(RakeEmail(domain = args[1]))
-    rs.add(RakeKeyValue("username"))
-    rs.add(RakeKeyValue("user"))
-    rs.add(RakeKeyValue("uname"))
-    #rs.add(RakeKeyValue("un"))
-    rs.add(RakeKeyValue("password"))
-    rs.add(RakeKeyValue("pass"))
-    #rs.add(RakeKeyValue("pw"))
-    rs.add(RakeKeyValue("authtok"))
-    rs.add(RakeKeyValue("token"))
-    rs.add(RakeKeyValue("tok"))
-    rs.add(RakeURL(domain = args[1]))
-    rs.add(RakeBase64(encoding='utf-8'))
-    rs.add(RakeEntropy())
 
-    for f in args[2:]:
+    if (len(args) == 3):
+        print("Adding domain checks")
+        rs.add(RakeHostname(domain = args[1]))
+        rs.add(RakeEmail(domain = args[1]))
+
+    #rs.add(RakeURL(domain = args[1]))
+    #rs.add(RakeEntropy())
+
+    rs.add(RakeBase64(encoding='utf-8'))
+    rs.add(RakePassword())
+    rs.add(RakeToken())
+    rs.add(RakePrivateKey())
+
+    n = 1
+    if len(args) > 2: n = 2
+
+    for f in args[n:]:
         RakeFile(f, rs, verbose=False)
 
 

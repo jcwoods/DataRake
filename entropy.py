@@ -3,7 +3,7 @@ import sys
 
 from collections import Counter
 
-def maxentropy(s:str, n:int=16, threshold:float=0.0):
+def maxentropy(s:str, n:int=32, threshold:float=0.0):
     '''
     Considering all substrings of length 'n' of the input string 's', returns
     the greatest Shannon entropy.  By default, substrings of length 16 will
@@ -41,6 +41,12 @@ def maxentropy(s:str, n:int=16, threshold:float=0.0):
 
     return maxe
 
+def entropy(s:str):
+    lns = float(len(s))
+    subc = Counter(s)
+    e = -sum( count/lns * math.log(count/lns, 2) for count in subc.values())
+    return e
+
 
 def main(argv):
     '''
@@ -48,8 +54,17 @@ def main(argv):
     command line argument.
     '''
 
-    print(maxentropy(argv[1]))
+    if len(argv) < 2:
+        fd = sys.stdin
+    else:
+        fd = open(argv[1], encoding='utf-8')
 
+    for line in fd:
+        line = line.strip()
+        print("{0:3.2f}: {1:s}".format(entropy(line), line))
+
+    fd.close()
+    return 0
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

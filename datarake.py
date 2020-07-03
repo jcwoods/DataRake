@@ -1,5 +1,6 @@
 import base64
 import math
+import os
 import re
 import sys
 
@@ -35,6 +36,60 @@ Assumptions:
 - multiple matches of any type may occur within a line.  We want them all.
 
 '''
+
+class DirectoryWalker:
+
+    def __init__(self, path=".", blacklist = None):
+        '''
+        path is the path to be traversed.
+
+        blacklist is a list of DIRECTORIES to be excluded.  By default, source
+        control directories (.svn, .git) will be used.
+        '''
+
+        if blacklist is None:
+            blacklist = [ '.svn', '.git' ]
+
+        self.blacklist = blacklist
+        self.path = path
+        return
+
+    def __iter__(self):
+        self.w = os.walk(self.path)
+
+        self.t = None    # current tuple (from os.walk).
+        self.i = 0       # index into file list
+        return self
+
+    def __next__(self):
+
+        while self.t is None:
+            t = self.w.__next__()
+
+            # apply blacklist to directories prior to recursion
+            t[1][:] = [d for d in t[1] if d not in self.blacklist]
+
+            if len(t[2]) == 0:
+                continue
+
+            self.i = 0
+            self.t = t
+
+        t = self.t
+        i = self.i
+
+        self.i += 1
+        if self.i >= len(self.t[2]):
+            self.t = None
+
+        path = t[0]
+        fnam = t[2][i]
+
+        # determine file extension, if any
+        parts = fnam.split(".")
+        ext = parts[-1] if len(parts) > 1 else None
+
+        return (path, fnam, ext)
 
 class RakePattern(object):
     '''
@@ -327,11 +382,13 @@ class RakeBase64(RakePattern):
         return mset
 
 
-def RakeFile(filename:str, rs:RakeSet, verbose=False):
+def RakeFile(path:str, filename:str, filetype:str, rs:RakeSet, verbose=False):
     findings = list()
 
+    fullpath = os.path.join(path, filename)
+
     try:
-        fd = open(filename, encoding="utf-8")
+        fd = open(fullpath, encoding="utf-8")
     except FileNotFoundError:
         return []
 
@@ -344,7 +401,7 @@ def RakeFile(filename:str, rs:RakeSet, verbose=False):
             if len(hits) > 0:
                 taggedhits = list()
                 for h in hits:
-                    taggedhits.append(RakeMatch(file=filename, line=lineno, hit=h))
+                    taggedhits.append(RakeMatch(file=fullpath, line=lineno, hit=h))
 
                 findings.extend(taggedhits)
 
@@ -365,7 +422,7 @@ def RakeFile(filename:str, rs:RakeSet, verbose=False):
 
 def main(args):
 
-    if len(args) < 2:
+    if len(args) != 2:
         raise RuntimeError("Invalid command line arguments.")
 
     rs = RakeSet()
@@ -386,8 +443,9 @@ def main(args):
     n = 1
     if len(args) > 2: n = 2
 
-    for f in args[n:]:
-        RakeFile(f, rs, verbose=False)
+    dw = DirectoryWalker(path=args[1])
+    for f in dw:
+        RakeFile(f[0], f[1], f[2], rs, verbose=False)
 
 
 if __name__ == "__main__":

@@ -48,7 +48,7 @@ class DirectoryWalker:
         '''
 
         if blacklist is None:
-            blacklist = [ '.svn', '.git' ]
+            blacklist = [ '.svn', '.git', '__pycache__' ]
 
         self.blacklist = blacklist
         self.path = path
@@ -383,8 +383,17 @@ class RakeBase64(RakePattern):
 
 
 def RakeFile(path:str, filename:str, filetype:str, rs:RakeSet, verbose=False):
-    findings = list()
+    # hardcoded for now...
+    blacklist_ext = [".exe", ".dll", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
+                     ".tiff", ".zip", ".doc", ".docx", ".xls", ".xlsx",
+                     ".pdf", ".tar.gz", ".jar", ".war", ".ear", ".class" ]
 
+    for ext in blacklist_ext:
+        if ext == filename[-len(ext):].lower():
+            print(f"blacklisted: {filename}")
+            return
+
+    findings = list()
     fullpath = os.path.join(path, filename)
 
     try:
@@ -440,9 +449,6 @@ def main(args):
     rs.add(RakeToken())
     rs.add(RakePrivateKey())
 
-    n = 1
-    if len(args) > 2: n = 2
-
     dw = DirectoryWalker(path=args[1])
     for f in dw:
         RakeFile(f[0], f[1], f[2], rs, verbose=False)
@@ -450,3 +456,6 @@ def main(args):
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
+
+
+__pycache__

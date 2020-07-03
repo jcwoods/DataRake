@@ -294,7 +294,7 @@ class RakePassword(RakePattern):
     '''
 
     def __init__(self, minlength:int=6):
-        r = r"(([\"']?)pass(w(ord)?)?(\2)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{"+str(minlength)+",}(\6))"
+        r = r"(([\"']?)pass(w(ord)?)?(\2)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",}(\6))"
         RakePattern.__init__(self, r, "password")
         return
 
@@ -304,7 +304,7 @@ class RakeToken(RakePattern):
     '''
 
     def __init__(self, minlength:int=6):
-        r = r"([\"']?)(auth)?tok(en)?(\1)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{"+str(minlength)+",}(\5)"
+        r = r"(([\"']?)(auth)?tok(en)?(\2)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{"+str(minlength)+r",}(\6))"
         RakePattern.__init__(self, r, "token")
         return
 

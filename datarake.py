@@ -138,6 +138,45 @@ class FiletypeContextRake(object):
         return mset
 
 
+class RakeToken(FiletypeContextRake):
+
+    def __init__(self, minlength:int=6, **kwargs):
+        FiletypeContextRake.__init__(self, 'token', **kwargs)
+        self.minlength = minlength
+
+        # add the default pattern (no other match)
+        r = r"(([\"']?)(auth)?tok(en)?(\2)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",}(\6))"
+        self.addContext(None, re.compile(r))
+
+        # c, c++, java
+        r = r'((auth)?tok(en)?[ \t]*=[ \t]*"[\x21\x23-\x26\x28-\x7e]{' + str(minlength) + r',}")'
+        cre = re.compile(r, flags = re.IGNORECASE)
+        self.addContext("c", cre)
+        self.addContext("h", cre)
+        self.addContext("cc", cre)
+        self.addContext("cpp", cre)
+        self.addContext("hpp", cre)
+        self.addContext("java", cre)
+
+        # js, py
+        r = r"((auth)?tok(en)?[ \t]*=[ \t]*(['\"])[\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",}(\4))"
+        self.addContext(None, re.compile(r))
+
+        # yaml, yml
+        r = r"((auth)?tok(en)?[ \t]*:[ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",}(\4))"
+        cre = re.compile(r, flags = re.IGNORECASE)
+        self.addContext("yaml", cre)
+        self.addContext("yml", cre)
+
+        # shell, ini
+        r = r"((auth)?tok(en)?[ \t]*=[ \t]*(['\"]?)[^\$][\x21\x23-\x26\x28-\x7e]{" + str(minlength-1) + r",}(\4))"
+        cre = re.compile(r, flags = re.IGNORECASE)
+        self.addContext("sh", cre)
+        self.addContext("ini", cre)
+
+        return
+
+
 class RakePassword(FiletypeContextRake):
     def __init__(self, minlength=6, **kwargs):
         FiletypeContextRake.__init__(self, 'password', **kwargs)
@@ -157,6 +196,10 @@ class RakePassword(FiletypeContextRake):
         self.addContext("hpp", cre)
         self.addContext("java", cre)
 
+        # js, py
+        r = r"(pass(w(ord)?)?[ \t]*=[ \t]*(['\"])[\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",}(\4))"
+        self.addContext(None, re.compile(r))
+
         # yaml, yml
         r = r"(pass(w(ord)?)?[ \t]*:[ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",}(\4))"
         cre = re.compile(r, flags = re.IGNORECASE)
@@ -164,7 +207,7 @@ class RakePassword(FiletypeContextRake):
         self.addContext("yml", cre)
 
         # shell, ini
-        r = r"(pass(w(ord)?)?[ \t]*=[ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",}(\4))"
+        r = r"(pass(w(ord)?)?[ \t]*=[ \t]*(['\"]?)[^\$][\x21\x23-\x26\x28-\x7e]{" + str(minlength-1) + r",}(\4))"
         cre = re.compile(r, flags = re.IGNORECASE)
         self.addContext("sh", cre)
         self.addContext("ini", cre)
@@ -384,15 +427,15 @@ class RakeURL(RakePattern):
 #        RakePattern.__init__(self, r, "password", **kwargs)
 #        return
 
-class RakeToken(RakePattern):
-    '''
-    A basic auth token matching pattern.
-    '''
-
-    def __init__(self, minlength:int=6, **kwargs):
-        r = r"(([\"']?)(auth)?tok(en)?(\2)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{"+str(minlength)+r",}(\6))"
-        RakePattern.__init__(self, r, "token", **kwargs)
-        return
+#class RakeToken(RakePattern):
+#    '''
+#    A basic auth token matching pattern.
+#    '''
+#
+#    def __init__(self, minlength:int=6, **kwargs):
+#        r = r"(([\"']?)(auth)?tok(en)?(\2)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{"+str(minlength)+r",}(\6))"
+#        RakePattern.__init__(self, r, "token", **kwargs)
+#        return
 
 class RakeEmail(RakePattern):
     def __init__(self, domain = None, **kwargs):

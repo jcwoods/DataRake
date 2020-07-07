@@ -89,7 +89,88 @@ class DirectoryWalker:
         parts = fnam.split(".")
         ext = parts[-1] if len(parts) > 1 else None
 
-        return (path, fnam, ext)
+        context = { "path": path,
+                    "filename": fnam }
+
+        if ext is not None:
+            context["filetype"] = ext
+
+        return context
+
+class FiletypeContextRake(object):
+
+    def __init__(self, ptype, verbose=False):
+        '''
+        '''
+
+        self.ptype = ptype        # description of this rake
+        self.patterns = dict()
+        self.verbose = verbose
+        return
+    
+    def addContext(self, filetype, pattern, pos=0):
+        self.patterns[filetype] = pattern
+        self.pos = pos
+        return
+
+    def match(self, context, text):
+        filetype = context.get("filetype", None)
+
+        pattern = None
+        if filetype is not None:
+            filetype = filetype.lower()
+            pattern = self.patterns.get(filetype, None)
+        
+        if pattern is None: pattern = self.patterns[None]
+
+        mset = []
+        #print(str(context))
+        #print(str(pattern))
+        for m in pattern.findall(text):
+            if isinstance(m, tuple):
+                val = m[self.pos]
+            else:
+                val = m
+
+            if self.verbose: print("+ hit:   " + str(val))
+            mset.append((self.ptype, val))
+
+        return mset
+
+
+class RakePassword(FiletypeContextRake):
+    def __init__(self, minlength=6, **kwargs):
+        FiletypeContextRake.__init__(self, 'password', **kwargs)
+        self.minlength = minlength
+
+        # add the default pattern (no other match)
+        r = r"(([\"']?)pass(w(ord)?)?(\2)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",}(\6))"
+        self.addContext(None, re.compile(r))
+
+        # c, c++, java
+        r = r'(pass(w(ord)?)?[ \t]*=[ \t]*"[\x21\x23-\x26\x28-\x7e]{' + str(minlength) + r',}")'
+        cre = re.compile(r, flags = re.IGNORECASE)
+        self.addContext("c", cre)
+        self.addContext("h", cre)
+        self.addContext("cc", cre)
+        self.addContext("cpp", cre)
+        self.addContext("hpp", cre)
+        self.addContext("java", cre)
+
+        # yaml, yml
+        r = r"(pass(w(ord)?)?[ \t]*:[ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",}(\4))"
+        cre = re.compile(r, flags = re.IGNORECASE)
+        self.addContext("yaml", cre)
+        self.addContext("yml", cre)
+
+        # shell, ini
+        r = r"(pass(w(ord)?)?[ \t]*=[ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",}(\4))"
+        cre = re.compile(r, flags = re.IGNORECASE)
+        self.addContext("sh", cre)
+        self.addContext("ini", cre)
+
+        return
+
 
 class RakePattern(object):
     '''
@@ -97,7 +178,7 @@ class RakePattern(object):
     '''
     special = '.^$*?\{\}()[]\\\|'  # . ^ $ * + ? { } [ ] \ | ( )
 
-    def __init__(self, pattern, ptype, pos = 0, ignorecase=True, verbose=False):
+    def __init__(self, pattern, ptype, pos=0, ignorecase=True, verbose=False):
         '''
         pattern is the pattern to be matched in the input text.
         ptype is the type of the pattern, supplied by the subclass.
@@ -111,6 +192,8 @@ class RakePattern(object):
         self.pattern = re.compile(pattern, flags=flags)
         self.ptype = ptype                 # pattern type
         self.pos = pos                     # position of match in output tuple
+        self.verbose = verbose
+
         return
 
     @staticmethod
@@ -134,9 +217,9 @@ class RakePattern(object):
 
         return ''.join([escapeLiteral(c) for c in s])
 
-    def match(self, text, verbose=False):
+    def match(self, context, text):
         mset = []
-        if verbose:
+        if self.verbose:
             print("* ptype:   " + self.ptype)
             print("* pattern: " + str(self.pattern))
             print("* text: " + str(text))
@@ -147,7 +230,7 @@ class RakePattern(object):
             else:
                 val = m
 
-            if verbose: print("+ hit:   " + str(val))
+            if self.verbose: print("+ hit:   " + str(val))
             mset.append((self.ptype, val))
 
         return mset
@@ -158,21 +241,22 @@ class RakeSet(object):
     A wrapper (list) of RakePattern objects.  Each pattern in this list will
     be evaluated against each line of input text.
     '''
-    def __init__(self, *args):
+    def __init__(self, verbose=False, *args):
         self.rakes = list(args)
+        self.verbose = verbose
         return
 
     def add(self, rake):
         self.rakes.append(rake)
         return
 
-    def match(self, text:str, verbose=False):
-        if verbose: print("Applying rakes to " + text)
+    def match(self, context, text:str):
+        if self.verbose: print("Applying rakes to " + text)
 
         matches = []
         for rake in self.rakes:
-            if verbose: print("* applying {}".format(rake.pattern))
-            mset = rake.match(text, verbose=verbose)
+            if self.verbose: print("* applying {}".format(rake.pattern))
+            mset = rake.match(context, text)
             for m in mset:
                 matches.append(m)
 
@@ -222,15 +306,16 @@ class RakeEntropy(object):
         http://www.rosettacode.org/wiki/Entropy#Python:_More_succinct_version
     '''
 
-    def __init__(self, n:int = 16, threshold:float=3.70):
+    def __init__(self, n:int = 16, threshold:float=3.70, verbose=False):
         self.ptype = 'entropy'
         self.threshold = threshold
         self.n = n
         self.fn = float(n)
+        self.verbose = verbose
 
         return
 
-    def match(self, s, verbose=False):
+    def match(self, context, s):
         for subc in [ Counter(s[i:i+self.n]) for i in range(len(s) - self.n + 1) ]:
             e = -sum( count/self.fn * math.log(count/self.fn, 2) for count in subc.values())
             if self.threshold > 0 and e >= self.threshold:
@@ -253,7 +338,7 @@ class RakeHostname(RakePattern):
     root) are supported.
     '''
 
-    def __init__(self, domain = None):
+    def __init__(self, domain=None, **kwargs):
         if domain is not None:
             d = RakePattern.escapeLiteralString(domain)
             r = r'\b(([a-z1-9\-]+\.)+' + d + r')\b'
@@ -265,11 +350,11 @@ class RakeHostname(RakePattern):
             # you don't like this, change the "{2,}" below to a simple "+".
             r = r'\b([a-z1-9\-]+(\.[a-z1-9\-]+){2,})\b'
 
-        RakePattern.__init__(self, r, 'hostname')
+        RakePattern.__init__(self, r, 'hostname', **kwargs)
         return
 
 class RakeURL(RakePattern):
-    def __init__(self, credentials=True):
+    def __init__(self, credentials=True, **kwargs):
         '''
         a very crude pattern to match URLs, roughly of the pattern:
             xxx://user:pass@xxx.xxx:ppp/zzz+
@@ -285,37 +370,38 @@ class RakeURL(RakePattern):
         #    d = RakePattern.escapeLiteralString(domain)
         #    r = r'\b([A-Z]{2,6}://([A-Z0-9%@+/=\-]+:[A-Z0-9%@+/=\-]+)?([A-Z0-9_-]+\.)*' + d + r'(:\d+)?(/(\S*)?)?)\b'
 
-        RakePattern.__init__(self, r, 'url')
+        RakePattern.__init__(self, r, 'url', **kwargs)
         return
 
-class RakePassword(RakePattern):
-    '''
-    A basic password matching pattern.
-    '''
 
-    def __init__(self, minlength:int=6):
-        r = r"(([\"']?)pass(w(ord)?)?(\2)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",}(\6))"
-        RakePattern.__init__(self, r, "password")
-        return
+#class RakePassword(RakePattern):
+#    '''
+#    A basic password matching pattern.
+#    '''
+#
+#    def __init__(self, minlength:int=6, **kwargs):
+#        r = r"(([\"']?)pass(w(ord)?)?(\2)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",}(\6))"
+#        RakePattern.__init__(self, r, "password", **kwargs)
+#        return
 
 class RakeToken(RakePattern):
     '''
     A basic auth token matching pattern.
     '''
 
-    def __init__(self, minlength:int=6):
+    def __init__(self, minlength:int=6, **kwargs):
         r = r"(([\"']?)(auth)?tok(en)?(\2)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{"+str(minlength)+r",}(\6))"
-        RakePattern.__init__(self, r, "token")
+        RakePattern.__init__(self, r, "token", **kwargs)
         return
 
 class RakeEmail(RakePattern):
-    def __init__(self, domain = None):
+    def __init__(self, domain = None, **kwargs):
         if domain is not None:
             d = RakePattern.escapeLiteralString(domain)
             r = r'([a-zA-Z1-9_.\-]+@' + d + r')'
         else:
             r = r'([a-zA-Z0-9_.\-]+@[A-Za-z0-9_\-]+(\.[A-Za-z0-9_\-]+)+)'
-        RakePattern.__init__(self, r, 'email')
+        RakePattern.__init__(self, r, 'email', **kwargs)
         return
 
 
@@ -348,7 +434,7 @@ class RakePrivateKey(RakePattern):
 
 
 class RakeBase64(RakePattern):
-    def __init__(self, minlength:int=16, encoding:str = 'utf-8'):
+    def __init__(self, minlength:int=16, encoding:str = 'utf-8', **kwargs):
         '''
         a pattern to match Base64 encoded values.
         minlength will set the minimum length of the matched string.
@@ -357,13 +443,13 @@ class RakeBase64(RakePattern):
         '''
         r = r'\b([A-Za-z0-9+/]{' + str(minlength) + r',}={0,2})\b'
 
-        RakePattern.__init__(self, r, 'base64')
+        RakePattern.__init__(self, r, 'base64', **kwargs)
         self.encoding = encoding
         return
 
-    def match(self, text:str, verbose:bool=False):
+    def match(self, context, text:str):
         mset = []
-        if verbose:
+        if self.verbose:
             print("* ptype:   " + self.ptype)
             print("* pattern: " + str(self.pattern))
 
@@ -382,31 +468,50 @@ class RakeBase64(RakePattern):
         return mset
 
 
-def RakeFile(path:str, filename:str, filetype:str, rs:RakeSet, verbose=False):
-    # hardcoded for now...
-    blacklist_ext = [".exe", ".dll", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
-                     ".tiff", ".zip", ".doc", ".docx", ".xls", ".xlsx",
-                     ".pdf", ".tar.gz", ".jar", ".war", ".ear", ".class" ]
+def RakeFile(context:dict, rs:RakeSet, blacklist:list=None, verbose=False):
+    '''
+    Applies a set of rakes (rs) to the file described in context.
 
-    for ext in blacklist_ext:
-        if ext == filename[-len(ext):].lower():
-            print(f"blacklisted: {filename}")
-            return
+    If the file ends with any of the values listed in 'blacklist', it will be
+    skipped.  Matches are case insensitive.
+
+    A list of hits are returned.
+    '''
+    
+    if blacklist is None:
+        blacklist = [".exe", ".dll", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
+                     ".tiff", ".zip", ".doc", ".docx", ".xls", ".xlsx",
+                     ".pdf", ".tgz", ".gz", ".tar.gz",
+                     ".jar", ".war", "ear", ".class" ]
+
+    path = context.get("path", None)
+    filename = context.get("filename", None)
 
     findings = list()
-    fullpath = os.path.join(path, filename)
+
+    if path is None or filename is None:
+        # log an error here
+        return findings
+
+    fullpath = context.get("fullpath", None)
+    if fullpath is None:
+        fullpath = os.path.join(path, filename)
+
+    for ext in blacklist:
+        if ext == filename[-len(ext):].lower():
+            return findings
 
     try:
         fd = open(fullpath, encoding="utf-8")
     except FileNotFoundError:
-        return []
+        return findings
 
     try:
         lineno = 1
         for line in fd:
             if verbose: print("text:      " + line.strip())
 
-            hits = rs.match(line, verbose=verbose)
+            hits = rs.match(context, line)
             if len(hits) > 0:
                 taggedhits = list()
                 for h in hits:
@@ -418,15 +523,9 @@ def RakeFile(path:str, filename:str, filetype:str, rs:RakeSet, verbose=False):
             lineno += 1
     except UnicodeDecodeError:
         if verbose: print("* Invalid file content: " + filename)
-    
 
     fd.close()
-
-    if len(findings) > 0:
-        for f in findings:
-            print(str(f))
-
-    return
+    return findings
 
 
 def main(args):
@@ -450,12 +549,10 @@ def main(args):
     rs.add(RakePrivateKey())
 
     dw = DirectoryWalker(path=args[1])
-    for f in dw:
-        RakeFile(f[0], f[1], f[2], rs, verbose=False)
-
+    for context in dw:
+        findings = RakeFile(context, rs, verbose=False)
+        for f in findings:
+            print(f)
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
-
-
-__pycache__

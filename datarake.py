@@ -611,20 +611,21 @@ def RakeFile(context:dict, rs:RakeSet, blacklist:list=None, verbose=False):
 
 def main(args):
 
-    if len(args) != 2:
+    if len(args) not in [2, 3]:
         raise RuntimeError("Invalid command line arguments.")
 
+    pathArgN = 1  # the index (n) of the path to be scanned in argv
     rs = RakeSet()
 
     if (len(args) == 3):
-        print("Adding domain checks")
         rs.add(RakeHostname(domain = args[1]))
         rs.add(RakeEmail(domain = args[1]))
+        pathArgN = 2    # don't scan first arg, do the second!
 
     #rs.add(RakeEntropy(n=32, threshold=4.875))
+    #rs.add(RakeBase64(encoding='utf-8'))
 
     rs.add(RakeURL())
-    #rs.add(RakeBase64(encoding='utf-8'))
     rs.add(RakePassword())
     rs.add(RakeToken())
     rs.add(RakeAWSHMACAuth())
@@ -632,7 +633,7 @@ def main(args):
     rs.add(RakeBearerAuth())
     rs.add(RakePrivateKey())
 
-    dw = DirectoryWalker(path=args[1])
+    dw = DirectoryWalker(path=args[pathArgN])
     for context in dw:
         findings = RakeFile(context, rs, verbose=False)
         for f in findings:

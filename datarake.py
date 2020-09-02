@@ -586,7 +586,7 @@ def main(args):
     #rs.add(RakeEntropy(n=32, threshold=4.875))
 
     rs.add(RakeURL())
-    rs.add(RakeBase64(encoding='utf-8'))
+    #rs.add(RakeBase64(encoding='utf-8'))
     rs.add(RakePassword())
     rs.add(RakeToken())
     rs.add(RakePrivateKey())

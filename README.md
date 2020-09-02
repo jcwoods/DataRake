@@ -3,7 +3,6 @@
 >* Dockerfile, to make running it a bit easier.
 >
 
-
 # DataRake
 A regex-based forensics tool used to extract secrets (passwords, tokens, keys, etc) from directories full of text files.
 

@@ -1,11 +1,15 @@
 # DataRake
 A regex-based forensics tool used to extract secrets (passwords, tokens, keys, etc) from directories full of text files.
 
-To run:
+To run from command line:
 
-    python3 datarake.py <path>
+    python3 datarake.py <path> [<path>, ...]
 
-The given path will be traversed recursively.  Pipe-delimited output includes filename, line number, match type, and match value.  This data is easily imported into your favorite spreadsheet.
+To run from Docker image, bind your directory to /scan:
+
+    docker run -v /local/volume:/scan datarake
+
+The given path(s) will be traversed recursively.  Pipe-delimited output includes filename, line number, match type, and match value.  This data is easily imported into your favorite spreadsheet.
 
 TODO:
 * Package as a real python module ;)

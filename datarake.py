@@ -107,7 +107,7 @@ class FiletypeContextRake(object):
         self.patterns = dict()
         self.verbose = verbose
         return
-    
+
     def addContext(self, filetype, pattern, pos=0):
         self.patterns[filetype] = pattern
         self.pos = pos
@@ -120,7 +120,7 @@ class FiletypeContextRake(object):
         if filetype is not None:
             filetype = filetype.lower()
             pattern = self.patterns.get(filetype, None)
-        
+
         if pattern is None: pattern = self.patterns[None]
 
         mset = []
@@ -255,7 +255,7 @@ class RakePattern(object):
 
             if c in RakePattern.special:
                 return '\\' + c
-        
+
             return c
 
         return ''.join([escapeLiteral(c) for c in s])
@@ -366,14 +366,14 @@ class RakeEntropy(object):
 
         return []
 
- 
+
 class RakeHostname(RakePattern):
     '''
     A RakeHostname acts as a 'root', meaning that it will match any valid hosts
     in the domain which share the root value.  For example, root="abc.com"
     will match not only "abc.com", but also "xyz.abc.com" and
     "foo.xyz.abc.com".
- 
+
     A domain name may include A-Z, 0-9, and '-'.  The '-' may not appear at
     the beginning or end of the name.
 
@@ -396,6 +396,7 @@ class RakeHostname(RakePattern):
         RakePattern.__init__(self, r, 'hostname', **kwargs)
         return
 
+
 class RakeURL(RakePattern):
     def __init__(self, credentials=True, **kwargs):
         '''
@@ -407,35 +408,9 @@ class RakeURL(RakePattern):
         else:
             r = r'\b([a-z]{2,6}://[a-z0-9_-]+(\.[a-z0-9_-]+)+(:\d{1,5})?(/(\S*)?)?)\b'
 
-        #if domain is None:
-        #    r = r'\b([A-Z]{2,6}://([A-Z0-9%@+/=\-]+:[A-Z0-9%@+/=\-]+)?[A-Z0-9_-]+(\.[A-Z0-9_-]+)+(:\d+)?(/(\S*)?)?)\b'
-        #else:
-        #    d = RakePattern.escapeLiteralString(domain)
-        #    r = r'\b([A-Z]{2,6}://([A-Z0-9%@+/=\-]+:[A-Z0-9%@+/=\-]+)?([A-Z0-9_-]+\.)*' + d + r'(:\d+)?(/(\S*)?)?)\b'
-
-        RakePattern.__init__(self, r, 'url', **kwargs)
+        RakePattern.__init__(self, r, 'auth url', **kwargs)
         return
 
-
-#class RakePassword(RakePattern):
-#    '''
-#    A basic password matching pattern.
-#    '''
-#
-#    def __init__(self, minlength:int=6, **kwargs):
-#        r = r"(([\"']?)pass(w(ord)?)?(\2)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",}(\6))"
-#        RakePattern.__init__(self, r, "password", **kwargs)
-#        return
-
-#class RakeToken(RakePattern):
-#    '''
-#    A basic auth token matching pattern.
-#    '''
-#
-#    def __init__(self, minlength:int=6, **kwargs):
-#        r = r"(([\"']?)(auth)?tok(en)?(\2)[ \t]*[=:][ \t]*(['\"]?)[\x21\x23-\x26\x28-\x7e]{"+str(minlength)+r",}(\6))"
-#        RakePattern.__init__(self, r, "token", **kwargs)
-#        return
 
 class RakeEmail(RakePattern):
     def __init__(self, domain = None, **kwargs):
@@ -472,7 +447,70 @@ class RakePrivateKey(RakePattern):
     '''
     def __init__(self, **kwargs):
         kp = r'^-----BEGIN ((RSA|DSA|EC|OPENSSH) )?PRIVATE KEY-----$'
-        RakePattern.__init__(self, kp, 'privatekey', ignorecase=False, **kwargs)
+        RakePattern.__init__(self, kp, 'private key', ignorecase=False, **kwargs)
+        return
+
+
+class RakeBearerAuth(RakePattern):
+    '''
+    Find likely Bearer auth tokens (as used in HTTP headers).  Eg,
+
+        Authorization: Bearer 986272DF-F26E-4A47-A1E4-B0FC0024A3EE
+    '''
+
+    def __init__(self, **kwargs):
+        kp = r'(Bearer [^ ]{8,})$'
+        RakePattern.__init__(self, kp, 'auth bearer', ignorecase=False, **kwargs)
+        return
+
+
+class RakeBasicAuth(RakePattern):
+    '''
+    Find likely Basic auth tokens (as used in HTTP headers).  Eg,
+
+        Authorization: Basic dXNlcjpwYXNzd29yZAo=
+
+    Note that we use a minimum (practical) length of 16 when matching
+    base64 data patterns.  If a potential base64-encoded value is found,
+    we will decode it and make sure we have a ':' somewhere in the string
+    as a minimal check.
+    '''
+    def __init__(self, encoding='utf-8', **kwargs):
+        kp = r'(Basic [A-Za-z0-9+/]{16,}={0,2})$'
+        RakePattern.__init__(self, kp, 'auth basic', ignorecase=False, **kwargs)
+        self.encoding = encoding
+        return
+
+    def match(self, context, text:str):
+        mset = []
+        for m in self.pattern.findall(text):
+            # we may or may not have something juicy... let's attempt to
+            # decode it and see if it checks out!
+            if self.encoding is not None:
+                try:
+                    encoded = m[6:]  # skip leading "Basic " label
+                    val = base64.b64decode(encoded, validate=True).decode(self.encoding).strip()
+                except:
+                    continue
+
+            if not val.isprintable() or val.find(":") < 1:
+                continue
+
+            mset.append((self.ptype, " ".join(("Basic", val))))
+        return mset
+
+
+class RakeAWSHMACAuth(RakePattern):
+    '''
+    Find AWS4-HMAC-SHA256 authorization headers, eg:
+
+        Authorization: AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request, SignedHeaders=host;range;x-amz-date, Signature=fe5f80f77d5fa3beca038a248ff027d0445342fe2855ddc963176630326f1024
+
+    See https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-auth-using-authorization-header.html
+    '''
+    def __init__(self, **kwargs):
+        kp = r'(AWS-HMAC-SHA256 .+)$'
+        RakePattern.__init__(self, kp, 'auth aws-hmac-sha256', ignorecase=False, **kwargs)
         return
 
 
@@ -520,7 +558,7 @@ def RakeFile(context:dict, rs:RakeSet, blacklist:list=None, verbose=False):
 
     A list of hits are returned.
     '''
-    
+
     if blacklist is None:
         blacklist = [".exe", ".dll", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
                      ".tiff", ".zip", ".doc", ".docx", ".xls", ".xlsx",
@@ -589,6 +627,9 @@ def main(args):
     #rs.add(RakeBase64(encoding='utf-8'))
     rs.add(RakePassword())
     rs.add(RakeToken())
+    rs.add(RakeAWSHMACAuth())
+    rs.add(RakeBasicAuth())
+    rs.add(RakeBearerAuth())
     rs.add(RakePrivateKey())
 
     dw = DirectoryWalker(path=args[1])

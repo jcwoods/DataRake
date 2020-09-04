@@ -1,3 +1,4 @@
+import argparse
 import base64
 import math
 import os
@@ -459,7 +460,7 @@ class RakeBearerAuth(RakePattern):
     '''
 
     def __init__(self, **kwargs):
-        kp = r'(Bearer [^ ]{8,})$'
+        kp = r'(Bearer \S{8,})$'
         RakePattern.__init__(self, kp, 'auth bearer', ignorecase=False, **kwargs)
         return
 
@@ -608,32 +609,93 @@ def RakeFile(context:dict, rs:RakeSet, blacklist:list=None, verbose=False):
     fd.close()
     return findings
 
+def parseCmdLine(argv):
+    parser = argparse.ArgumentParser()
 
-def main(args):
+    # add OPTIONAL arguments
+    parser.add_argument("-n", "--hostname", action='store_true',
+                        required=False, default=False,
+                        help="scan for hostnames, optionally rooted in DOMAIN.")
+    parser.add_argument("-e", "--email", action='store_true',
+                        required=False, default=False,
+                        help="scan for email addresses, optionally rooted in DOMAIN.")
+    parser.add_argument("-d", "--domain", nargs=1,
+                        required=False, default=None,
+                        help="for hostname and emails, require that they are "
+                             "rooted in DOMAIN.  If no DOMAIN is specified and "
+                             "either hostname or email matching is enabled, any "
+                             "pattern matching a host or email will be reported")
+    parser.add_argument("-r", "--random", nargs="?", type=str, default=None,
+                        help="scan for high entropy strings.  RANDOM is a threshold "
+                             "formatted <bytes>:<entropy>, where <bytes> is the "
+                             "length of strings measured and <entropy> is the "
+                             "Shanon entropy score.  If you're unsure, start with "
+                             "RANDOM set as '32:4.875' and tune from there.")
+    parser.add_argument("-b", "--base64", nargs="?", type=int, default=0,
+                        help="scan for base64-encoded text with minimum encoded "
+                             "length of BASE64.")
 
-    if len(args) not in [2, 3]:
-        raise RuntimeError("Invalid command line arguments.")
+    # allow DEFAULT arguments to be disabled.
+    parser.add_argument("-dp", "--disable-passwords", action='store_true',
+                        required=False, default=False,
+                        help="disable scan for passwords")
+    parser.add_argument("-dt", "--disable-tokens", action='store_true',
+                        required=False, default=False,
+                        help="disable scan for tokens")
+    parser.add_argument("-dh", "--disable-headers", action='store_true',
+                        required=False, default=False,
+                        help="disable scan for common auth headers")
+    parser.add_argument("-dk", "--disable-private_keys", action='store_true',
+                        required=False, default=False,
+                        help="disable scan for private key files.")
 
-    pathArgN = 1  # the index (n) of the path to be scanned in argv
+    parser.add_argument("PATH", default=None, help="Path to be (recursively) searched.")
+    return parser.parse_args(argv[1:])
+
+
+def main(argv):
+    cfg = parseCmdLine(argv)
+
     rs = RakeSet()
 
-    if (len(args) == 3):
-        rs.add(RakeHostname(domain = args[1]))
-        rs.add(RakeEmail(domain = args[1]))
-        pathArgN = 2    # don't scan first arg, do the second!
+    if cfg.hostname:
+        rs.add(RakeHostname(domain = cfg.domain))
 
-    #rs.add(RakeEntropy(n=32, threshold=4.875))
-    #rs.add(RakeBase64(encoding='utf-8'))
+    if cfg.hostname:
+        rs.add(RakeEmail(domain = cfg.domain))
+
+    if cfg.random is not None:
+        try:
+            l, t = cfg.random(split(":"))
+            blen = int(l)  # length of strings measured, in bytes
+            es = float(t)  # minimum entropy score
+        except ValueError as e:
+            print(str(e))
+            return 1
+
+        rs.add(RakeEntropy(n=blen, threshold=es))
+
+    if cfg.base64 > 0:
+        blen = int(cfg.base64)
+        rs.add(RakeBase64(minlength=blen, encoding='utf-8'))
 
     rs.add(RakeURL())
-    rs.add(RakePassword())
-    rs.add(RakeToken())
-    rs.add(RakeAWSHMACAuth())
-    rs.add(RakeBasicAuth())
-    rs.add(RakeBearerAuth())
-    rs.add(RakePrivateKey())
 
-    dw = DirectoryWalker(path=args[pathArgN])
+    if not cfg.disable_passwords:
+        rs.add(RakePassword())
+
+    if not cfg.disable_passwords:
+        rs.add(RakeToken())
+
+    if not cfg.disable_headers:
+        rs.add(RakeAWSHMACAuth())
+        rs.add(RakeBasicAuth())
+        rs.add(RakeBearerAuth())
+
+    if not cfg.disable_private_keys:
+        rs.add(RakePrivateKey())
+
+    dw = DirectoryWalker(path=cfg.PATH)
     for context in dw:
         findings = RakeFile(context, rs, verbose=False)
         for f in findings:

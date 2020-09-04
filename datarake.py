@@ -125,8 +125,7 @@ class FiletypeContextRake(object):
         if pattern is None: pattern = self.patterns[None]
 
         mset = []
-        #print(str(context))
-        #print(str(pattern))
+
         for m in pattern.findall(text):
             if isinstance(m, tuple):
                 val = m[self.pos]
@@ -220,7 +219,7 @@ class RakePattern(object):
     '''
     This is a basic pattern.  It will be compiled into a regex.
     '''
-    special = '.^$*?\{\}()[]\\\|'  # . ^ $ * + ? { } [ ] \ | ( )
+    special = r'.^$*?{}()[]|\\'  # . ^ $ * + ? { } [ ] \ | ( )
 
     def __init__(self, pattern, ptype, pos=0, ignorecase=True, verbose=False):
         '''
@@ -491,7 +490,7 @@ class RakeBasicAuth(RakePattern):
                 try:
                     encoded = m[6:]  # skip leading "Basic " label
                     val = base64.b64decode(encoded, validate=True).decode(self.encoding).strip()
-                except:
+                except Exception:
                     continue
 
             if not val.isprintable() or val.find(":") < 1:
@@ -541,7 +540,7 @@ class RakeBase64(RakePattern):
             if self.encoding is not None:
                 try:
                     val = base64.b64decode(m, validate=True).decode(self.encoding).strip()
-                except:
+                except Exception:
                     continue
 
             if not val.isprintable(): continue
@@ -666,7 +665,7 @@ def main(argv):
 
     if cfg.random is not None:
         try:
-            l, t = cfg.random(split(":"))
+            l, t = cfg.random.split(":")
             blen = int(l)  # length of strings measured, in bytes
             es = float(t)  # minimum entropy score
         except ValueError as e:

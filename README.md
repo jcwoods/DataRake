@@ -8,9 +8,9 @@ A regex-based forensics tool used to extract secrets (passwords, tokens, keys, e
 
 To run from command line:
 
-    usage: datarake.py [-h] [-n] [-e] [-d DOMAIN] [-r [RANDOM]] [-b [BASE64]]
-                       [-dp] [-dt] [-dh] [-dk]
-                       PATH
+    usage: datarake.py [-h] [-n] [-e] [-d DOMAIN] [-r [ENTROPY]] [-b [BASE64]]
+                       [-j] [-dp] [-dt] [-dh] [-dk] [-du]
+                       PATH [PATH ...]
     
     positional arguments:
       PATH                  Path to be (recursively) searched.
@@ -24,23 +24,27 @@ To run from command line:
                             in DOMAIN. If no DOMAIN is specified and either
                             hostname or email matching is enabled, any pattern
                             matching a host or email will be reported
-      -r [RANDOM], --random [RANDOM]
-                            scan for high entropy strings. RANDOM is a threshold
+      -r [ENTROPY], --random [ENTROPY]
+                            scan for high entropy strings. ENTROPY is a threshold
                             formatted <bytes>:<entropy>, where <bytes> is the
-                            length of strings measured and <entropy> is the Shanon
-                            entropy score. If you're unsure, start with RANDOM set
-                            as '32:4.875' and tune from there.
+                            length of substrings measured within the text and
+                            <entropy> is the Shanon entropy score. If you're
+                            unsure what this means, start with ENTROPY set as
+                            '32:4.875' and tune from there.
       -b [BASE64], --base64 [BASE64]
                             scan for base64-encoded text with minimum encoded
                             length of BASE64.
+      -j, --jwt             scan for Javascript Web Tokens (JWT)
       -dp, --disable-passwords
                             disable scan for passwords
       -dt, --disable-tokens
                             disable scan for tokens
       -dh, --disable-headers
                             disable scan for common auth headers
-      -dk, --disable-private_keys
+      -dk, --disable-private-keys
                             disable scan for private key files.
+      -du, --disable-urls   disable scan for credentials in URLs
+
 
 To run from Docker image (with defaults), bind your directory to /scan:
 
@@ -59,4 +63,3 @@ TODO:
 * Detect JWT (base64 + structure)
 * Allow filters to remove noisy false positives (URLs with "example.com", suppress base64 hits in .pem, .crt, id_*, etc)
 * (maybe) find a data sciency way to reduce false positives.  Generating labelled data is fairly easy...
-

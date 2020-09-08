@@ -358,20 +358,23 @@ class RakeEntropy(object):
         http://www.rosettacode.org/wiki/Entropy#Python:_More_succinct_version
     '''
 
-    def __init__(self, n:int = 16, threshold:float=3.70, verbose=False):
-        self.ptype = 'entropy'
+    def __init__(self, n:int = 16, threshold:float=3.70, allow_space=False, verbose=False):
+        self.ptype = 'high entropy'
         self.threshold = threshold
         self.n = n
         self.fn = float(n)
+        self.allow_space = allow_space
         self.verbose = verbose
 
         return
 
-    def match(self, context, s):
+    def match(self, context, s:str):
         for subc in [ Counter(s[i:i+self.n]) for i in range(len(s) - self.n + 1) ]:
+            if not self.allow_space and ' ' in subc: continue
             e = -sum( count/self.fn * math.log(count/self.fn, 2) for count in subc.values())
             if self.threshold > 0 and e >= self.threshold:
-                return [(self.ptype, s)]
+                # only return first hit -- may be MANY!
+                return [(self.ptype, s.strip())]
 
         return []
 
@@ -455,7 +458,8 @@ class RakePrivateKey(RakePattern):
               specifically detect a private key based on the DER?
     '''
     def __init__(self, **kwargs):
-        kp = r'^-----BEGIN ((RSA|DSA|EC|OPENSSH) )?PRIVATE KEY-----$'
+        kp = r'^(-----BEGIN ((RSA|DSA|EC|OPENSSH) )?(PRIVATE KEY|CERTIFICATE)-----)$'
+        #kp = r'^-----BEGIN ((RSA|DSA|EC|OPENSSH) )?PRIVATE KEY-----$'
         RakePattern.__init__(self, kp, 'private key', ignorecase=False, **kwargs)
         return
 

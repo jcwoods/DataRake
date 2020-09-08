@@ -1,5 +1,6 @@
 import argparse
 import base64
+import json
 import math
 import os
 import re
@@ -250,7 +251,7 @@ class RakePattern(object):
 
     @staticmethod
     def escapeLiteralString(s:str):
-        '''
+        r'''
         Escapes a string so that "special" regex characters are not
         accidentally passed through.  As an example, consider the difference
         of 'abc.com' and 'abc\.com' in a regex -- in the first, the '.' is
@@ -303,7 +304,7 @@ class RakeSet(object):
         return
 
     def match(self, context, text:str):
-        if self.verbose: print("Applying rakes to " + text)
+        if self.verbose: print(f"Applying rakes to {text.rstrip()}")
 
         matches = []
         for rake in self.rakes:
@@ -458,8 +459,7 @@ class RakePrivateKey(RakePattern):
               specifically detect a private key based on the DER?
     '''
     def __init__(self, **kwargs):
-        kp = r'^(-----BEGIN ((RSA|DSA|EC|OPENSSH) )?(PRIVATE KEY|CERTIFICATE)-----)$'
-        #kp = r'^-----BEGIN ((RSA|DSA|EC|OPENSSH) )?PRIVATE KEY-----$'
+        kp = r'^(-----BEGIN (((RSA|DSA|EC|OPENSSH) )?(PRIVATE KEY)|CERTIFICATE)-----)$'
         RakePattern.__init__(self, kp, 'private key', ignorecase=False, **kwargs)
         return
 
@@ -510,6 +510,55 @@ class RakeBasicAuth(RakePattern):
                 continue
 
             mset.append((self.ptype, " ".join(("Basic", val))))
+        return mset
+
+
+class RakeJWTAuth(RakePattern):
+    '''
+    Find likely JWT tokens.  Eg,
+
+    eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG91IiwiaXNTb2NpYWwiOnRydWV9.4pcPyMD09olPSyXnrXCjTwXyr4BsezdI1AVTmud2fU4='
+
+    This is three sections of data, formatted:  header.payload.signature
+
+    The header and payload must be base64-encoded JSON.  We assume that the
+    third section is either the signature or is non-standard, so we will make
+    no attempt to decode or otherise validate it.
+
+    Also note that we use a minimum (practical) length of 24 when matching
+    base64 data patterns.  In reality, it would be difficult to encode a
+    header or payload in this length, but it serves as an effective filter.
+
+    JWT tokens are not supposed to include sensitive data, but they might
+    still have been generated on a server and saved for use in later
+    authorizations.  This STORAGE of JWT is dangerous and should be flagged.
+    '''
+
+    def __init__(self, encoding='utf-8', **kwargs):
+        kp = r'\b([A-Za-z0-9+/]{24,}={0,2})\.([A-Za-z0-9+/]{24,}={0,2})\.([A-Za-z0-9+/]{24,}={0,2})\b'
+        RakePattern.__init__(self, kp, 'jwt token', ignorecase=False, **kwargs)
+        self.encoding = encoding
+        return
+
+    def match(self, context, text:str):
+        mset = []
+        for m in self.pattern.findall(text):
+            # we may or may not have something juicy... let's attempt to
+            # decode it and see if it checks out!
+            if self.encoding is not None:
+                try:
+                    t0 = base64.b64decode(m[0]).decode('utf-8')
+                    t1 = base64.b64decode(m[1]).decode('utf-8')
+
+                    # all we care is that the JSON decode works!  If it
+                    # fails, this isn't JWT.
+                    json.loads(t0)
+                    json.loads(t1)
+                except Exception:
+                    continue
+
+            token = ".".join((t0, t1))
+            mset.append( (self.ptype, token) )
         return mset
 
 
@@ -648,6 +697,9 @@ def parseCmdLine(argv):
     parser.add_argument("-b", "--base64", nargs="?", type=int, default=0,
                         help="scan for base64-encoded text with minimum encoded "
                              "length of BASE64.")
+    parser.add_argument("-j", "--jwt", action='store_true',
+                        required=False, default=False,
+                        help="scan for Javascript Web Tokens (JWT)")
 
     # allow DEFAULT arguments to be disabled.
     parser.add_argument("-dp", "--disable-passwords", action='store_true',
@@ -659,9 +711,13 @@ def parseCmdLine(argv):
     parser.add_argument("-dh", "--disable-headers", action='store_true',
                         required=False, default=False,
                         help="disable scan for common auth headers")
-    parser.add_argument("-dk", "--disable-private_keys", action='store_true',
+    parser.add_argument("-dk", "--disable-private-keys", action='store_true',
                         required=False, default=False,
                         help="disable scan for private key files.")
+
+    parser.add_argument("-du", "--disable-urls", action='store_true',
+                        required=False, default=False,
+                        help="disable scan for credentials in URLs")
 
     parser.add_argument("PATH", default=None, nargs="+",
                         help="Path to be (recursively) searched.")
@@ -695,7 +751,11 @@ def main(argv):
         blen = int(cfg.base64)
         rs.add(RakeBase64(minlength=blen, encoding='utf-8'))
 
-    rs.add(RakeURL())
+    if cfg.jwt:
+        rs.add(RakeJWTAuth())
+
+    if not cfg.disable_urls:
+        rs.add(RakeURL())
 
     if not cfg.disable_passwords:
         rs.add(RakePassword())

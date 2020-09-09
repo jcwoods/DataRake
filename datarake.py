@@ -92,7 +92,8 @@ class DirectoryWalker:
         ext = parts[-1] if len(parts) > 1 else None
 
         context = { "path": path,
-                    "filename": fnam }
+                    "filename": fnam,
+                    "fullpath": os.path.join(path, fnam) }
 
         if ext is not None:
             context["filetype"] = ext
@@ -107,16 +108,98 @@ class Rake(object):
     applied repeatedly.
     '''
 
-    def __init__(self, type = None):
-        self.raketype = type
+    def __init__(self, name = None, part = 'content'):
+        self.name = name
+        self.part = part  # content, filemeta, etc.
 
+
+class RakeFileMeta(Rake):
+    '''
+    Creates RakeMatch based on file metadata (name, path, extension) rather
+    than content.
+
+    If self.all_required is set to true, all patterns which have been
+    defined MUST return true.  Otherwise, we will return a positive
+    result when the first match is made.
+    '''
+
+    def __init__(self, ptype, path=None, file=None, ext=None, all=True, verbose=False):
+        Rake.__init__(self, name=self.__class__.__name__, part='filemeta')
+        self.ptype = ptype
+        self.path_pattern = None if path is None else re.compile(path)
+        self.file_pattern = None if file is None else re.compile(file)
+        self.ext_pattern = None if ext is None else re.compile(ext)
+        self.all_required = all
+        self.verbose = verbose
+        return
+
+    def match(self, context):
+        path = context.get('path', None)
+        fnam = context.get('filename', None)
+        ext = context.get('filetype', None)
+        full = context.get('fullpath', None)
+
+        # create the match up front, just in case!
+        m = RakeMatch(file=full, line=None, label=self.ptype, hit=None)
+
+        if self.path_pattern is not None:
+            if path is None: return False
+            if not self.path_pattern.match(path): return False
+            if not self.all_required: return m
+
+        if self.file_pattern is not None:
+            if fnam is None: return False
+            if not self.file_pattern.match(fnam): return False
+            if not self.all_required: return m
+
+        if self.ext_pattern is not None:
+            if ext is None: return False
+            if not self.ext_pattern.match(ext): return False
+            if not self.all_required: return m
+
+        return m
+
+
+class RakeSSHIdentity(RakeFileMeta):
+    '''
+    SSH identity files (eg, "private keys")
+    '''
+    def __init__(self):
+        RakeFileMeta.__init__(self, 'ssh identity file', file=r"^id_(r|(ec)?d)sa$")
+        return
+
+
+class RakeNetrc(RakeFileMeta):
+    '''
+    Network credential storage.
+    '''
+    def __init__(self):
+        RakeFileMeta.__init__(self, 'netrc file', file=r"^.?netrc$")
+        return
+
+class RakePKIKeyFiles(RakeFileMeta):
+    '''
+    Files often related with PKI/X509 keys.
+    '''
+    def __init__(self):
+        RakeFileMeta.__init__(self, 'x509 key file', ext=r"^(pem|pfx|p12|p7b|key)$")
+        return
+
+class RakeHtpasswdFiles(RakeFileMeta):
+    '''
+    Apache htpasswd files.
+    '''
+    def __init__(self):
+        RakeFileMeta.__init__(self, 'x509 key file', ext=r"^(pem|pfx|p12|p7b|key)$")
+        return
 
 class FiletypeContextRake(Rake):
+    '''
+    Manages a set of Rakes, applying each based on file type (extension).
+    '''
 
     def __init__(self, ptype, verbose=False):
-        '''
-        '''
-        Rake.__init__(self, self.__class__.__name__)
+        Rake.__init__(self, name=self.__class__.__name__, part='content')
         self.ptype = ptype        # description of this rake
         self.patterns = dict()
         self.verbose = verbose
@@ -146,7 +229,10 @@ class FiletypeContextRake(Rake):
                 val = m
 
             if self.verbose: print("+ hit:   " + str(val))
-            mset.append((self.ptype, val))
+            mset.append(RakeMatch(file=context['fullpath'],
+                                  line=context['lineno'],
+                                  label=self.ptype, 
+                                  hit=val))
 
         return mset
 
@@ -248,7 +334,7 @@ class RakePattern(Rake):
         pattern is the pattern to be matched in the input text.
         ptype is the type of the pattern, supplied by the subclass.
         '''
-        Rake.__init__(self, self.__class__.__name__)
+        Rake.__init__(self, name=self.__class__.__name__, part='content')
 
         if verbose: print(pattern)
 
@@ -298,7 +384,10 @@ class RakePattern(Rake):
                 val = m
 
             if self.verbose: print("+ hit:   " + str(val))
-            mset.append((self.ptype, val))
+            mset.append(RakeMatch(file=context['fullpath'],
+                                  line=context['lineno'],
+                                  label=self.ptype,
+                                  hit=val))
 
         return mset
 
@@ -309,25 +398,95 @@ class RakeSet(object):
     be evaluated against each line of input text.
     '''
     def __init__(self, verbose=False, *args):
-        self.rakes = list(args)
+        self.content_rakes = list(args)
+        self.meta_rakes = list()
         self.verbose = verbose
         return
 
     def add(self, rake):
-        self.rakes.append(rake)
-        return
+        if rake.part == 'filemeta':
+            self.meta_rakes.append(rake)
+            return
 
-    def match(self, context, text:str):
+        if rake.part == 'content':
+            self.content_rakes.append(rake)
+            return
+
+        raise RuntimeError("Unknown rake type")
+
+    def match_context(self, context):
+        hits = list()
+        for rake in self.meta_rakes:
+            if rake.match(context):
+                hits.append(RakeMatch(file=context['fullpath'],
+                                      line=None,
+                                      label=rake.ptype,
+                                      hit=None))
+
+        return hits
+
+    def match_content(self, context, text:str):
         if self.verbose: print(f"Applying rakes to {text.rstrip()}")
 
         matches = []
-        for rake in self.rakes:
-            if self.verbose: print("* applying {}".format(rake.pattern))
+        for rake in self.content_rakes:
+            if self.verbose: print("* applying content rake {}".format(rake.pattern))
             mset = rake.match(context, text)
             for m in mset:
                 matches.append(m)
 
         return matches
+    
+    def match(self, context, blacklist=None):
+        if blacklist is None:
+            blacklist = [".exe", ".dll", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
+                         ".tiff", ".zip", ".doc", ".docx", ".xls", ".xlsx",
+                         ".pdf", ".tgz", ".gz", ".tar.gz",
+                         ".jar", ".war", "ear", ".class" ]
+
+        path = context.get("path", None)
+        filename = context.get("filename", None)
+        context['lineno'] = None
+
+        findings = list()
+
+        if path is None or filename is None:
+            # log an error here
+            return findings
+
+        fullpath = context.get("fullpath", None)
+        if fullpath is None:
+            fullpath = os.path.join(path, filename)
+
+        for ext in blacklist:
+            # log message here
+            if ext == filename[-len(ext):].lower():
+                return findings
+
+        context_hits = self.match_context(context)
+        if len(context_hits) > 0: findings.extend(context_hits)
+
+        try:
+            fd = open(fullpath, encoding="utf-8")
+        except FileNotFoundError:
+            # log an error here
+            return findings
+
+        try:
+            lineno = 1
+            for line in fd:
+                if self.verbose: print("text:      " + line.strip())
+
+                context['lineno'] = lineno
+                hits = self.match_content(context, line)
+                findings.extend(hits)
+
+                lineno += 1
+        except UnicodeDecodeError:
+            if self.verbose: print("* Invalid file content: " + filename)
+
+        fd.close()
+        return findings
 
 
 class RakeMatch(object):
@@ -337,14 +496,19 @@ class RakeMatch(object):
     An offset of 1 is the first column of the line.
     '''
 
-    def __init__(self, file:str = None, line:int = 0, hit = None):
+    def __init__(self, file:str = None, line:int = 0, label = None, hit = None):
         self.file = file
         self.line = line
+        self.label = label
         self.hit = hit
         return
 
     def __str__(self):
-        return "|".join((self.file, str(self.line), self.hit[0], self.hit[1]))
+        f = self.file if self.file is not None else ""
+        ln = str(self.line) if self.line is not None else ""
+        lb = self.label if self.label is not None else ""
+        hit = self.hit if self.hit is not None else ""
+        return "|".join((f, ln, lb, hit))
 
 
 class RakeEntropy(Rake):
@@ -374,7 +538,7 @@ class RakeEntropy(Rake):
     '''
 
     def __init__(self, n:int = 16, threshold:float=3.70, allow_space=False, verbose=False):
-        Rake.__init__(self, self.__class__.__name__)
+        Rake.__init__(self, name=self.__class__.__name__, part='content')
         self.ptype = 'high entropy'
         self.threshold = threshold
         self.n = n
@@ -390,7 +554,10 @@ class RakeEntropy(Rake):
             e = -sum( count/self.fn * math.log(count/self.fn, 2) for count in subc.values())
             if self.threshold > 0 and e >= self.threshold:
                 # only return first hit -- may be MANY!
-                return [(self.ptype, s.strip())]
+                return RakeMatch(file=context['fullpath'],
+                                 line=context['lineno'],
+                                 label=self.ptype,
+                                 hit=s.strip())
 
         return []
 
@@ -457,6 +624,7 @@ class RakeEmail(RakePattern):
             r = r'([a-zA-Z1-9_.\-]+@' + d + r')'
         else:
             r = r'([a-zA-Z0-9_.\-]+@[A-Za-z0-9_\-]+(\.[A-Za-z0-9_\-]+)+)'
+
         RakePattern.__init__(self, r, 'email', **kwargs)
         return
 
@@ -524,7 +692,11 @@ class RakeBasicAuth(RakePattern):
             if not val.isprintable() or val.find(":") < 1:
                 continue
 
-            mset.append((self.ptype, " ".join(("Basic", val))))
+            mset.append(RakeMatch(file=context['fullpath'],
+                                  line=context['lineno'],
+                                  label=self.ptype,
+                                  hit=" ".join(("Basic", val))))
+                                   
         return mset
 
 
@@ -573,7 +745,10 @@ class RakeJWTAuth(RakePattern):
                     continue
 
             token = ".".join((t0, t1))
-            mset.append( (self.ptype, token) )
+            mset.append(RakeMatch(file=context['fullpath'],
+                                  line=context['lineno'],
+                                  label=self.ptype,
+                                  hit=token))
         return mset
 
 
@@ -621,69 +796,13 @@ class RakeBase64(RakePattern):
                     continue
 
             if not val.isprintable(): continue
-            mset.append((self.ptype, val))
+            mset.append(RakeMatch(file=context['fullpath'],
+                                  line=context['lineno'],
+                                  label=self.ptype,
+                                  hit=val))
 
         return mset
 
-
-def doFile(context:dict, rs:RakeSet, blacklist:list=None, verbose=False):
-    '''
-    Applies a set of rakes (rs) to the file described in context.
-
-    If the file ends with any of the values listed in 'blacklist', it will be
-    skipped.  Matches are case insensitive.
-
-    A list of hits are returned.
-    '''
-
-    if blacklist is None:
-        blacklist = [".exe", ".dll", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
-                     ".tiff", ".zip", ".doc", ".docx", ".xls", ".xlsx",
-                     ".pdf", ".tgz", ".gz", ".tar.gz",
-                     ".jar", ".war", "ear", ".class" ]
-
-    path = context.get("path", None)
-    filename = context.get("filename", None)
-
-    findings = list()
-
-    if path is None or filename is None:
-        # log an error here
-        return findings
-
-    fullpath = context.get("fullpath", None)
-    if fullpath is None:
-        fullpath = os.path.join(path, filename)
-
-    for ext in blacklist:
-        if ext == filename[-len(ext):].lower():
-            return findings
-
-    try:
-        fd = open(fullpath, encoding="utf-8")
-    except FileNotFoundError:
-        return findings
-
-    try:
-        lineno = 1
-        for line in fd:
-            if verbose: print("text:      " + line.strip())
-
-            hits = rs.match(context, line)
-            if len(hits) > 0:
-                taggedhits = list()
-                for h in hits:
-                    taggedhits.append(RakeMatch(file=fullpath, line=lineno, hit=h))
-
-                findings.extend(taggedhits)
-
-            if verbose: print("")
-            lineno += 1
-    except UnicodeDecodeError:
-        if verbose: print("* Invalid file content: " + filename)
-
-    fd.close()
-    return findings
 
 def parseCmdLine(argv):
     parser = argparse.ArgumentParser()
@@ -729,10 +848,12 @@ def parseCmdLine(argv):
     parser.add_argument("-dk", "--disable-private-keys", action='store_true',
                         required=False, default=False,
                         help="disable scan for private key files.")
-
     parser.add_argument("-du", "--disable-urls", action='store_true',
                         required=False, default=False,
                         help="disable scan for credentials in URLs")
+    parser.add_argument("-df", "--disable-dangerous-files", action='store_true',
+                        required=False, default=False,
+                        help="disable detection of dangerous files")
 
     parser.add_argument("PATH", default=None, nargs="+",
                         help="Path to be (recursively) searched.")
@@ -786,10 +907,15 @@ def main(argv):
     if not cfg.disable_private_keys:
         rs.add(RakePrivateKey())
 
+    if not cfg.disable_dangerous_files:
+        rs.add(RakeSSHIdentity())
+        rs.add(RakeNetrc())
+        rs.add(RakePKIKeyFiles())
+
     for d in cfg.PATH:
         dw = DirectoryWalker(d)
         for context in dw:
-            findings = doFile(context, rs, verbose=False)
+            findings = rs.match(context)
             for f in findings:
                 print(f)
 

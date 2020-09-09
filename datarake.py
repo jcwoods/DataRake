@@ -99,12 +99,24 @@ class DirectoryWalker:
 
         return context
 
-class FiletypeContextRake(object):
+class Rake(object):
+    '''
+    A Rake is an abstract "issue finder".  Its subclasses do all of the real
+    work.  When applied or executed, it creates RakeMatch objects.  Rake
+    objects are grouped in RakeSet collections when many Rakes will be
+    applied repeatedly.
+    '''
+
+    def __init__(self, type = None):
+        self.raketype = type
+
+
+class FiletypeContextRake(Rake):
 
     def __init__(self, ptype, verbose=False):
         '''
         '''
-
+        Rake.__init__(self, self.__class__.__name__)
         self.ptype = ptype        # description of this rake
         self.patterns = dict()
         self.verbose = verbose
@@ -225,7 +237,7 @@ class RakePassword(FiletypeContextRake):
         return
 
 
-class RakePattern(object):
+class RakePattern(Rake):
     '''
     This is a basic pattern.  It will be compiled into a regex.
     '''
@@ -236,6 +248,8 @@ class RakePattern(object):
         pattern is the pattern to be matched in the input text.
         ptype is the type of the pattern, supplied by the subclass.
         '''
+        Rake.__init__(self, self.__class__.__name__)
+
         if verbose: print(pattern)
 
         flags = 0
@@ -333,7 +347,7 @@ class RakeMatch(object):
         return "|".join((self.file, str(self.line), self.hit[0], self.hit[1]))
 
 
-class RakeEntropy(object):
+class RakeEntropy(Rake):
     '''
     Considering all substrings of length 'n' of an input string 's', returns
     the greatest Shannon entropy.  By default, substrings of length 16 will
@@ -360,6 +374,7 @@ class RakeEntropy(object):
     '''
 
     def __init__(self, n:int = 16, threshold:float=3.70, allow_space=False, verbose=False):
+        Rake.__init__(self, self.__class__.__name__)
         self.ptype = 'high entropy'
         self.threshold = threshold
         self.n = n
@@ -611,7 +626,7 @@ class RakeBase64(RakePattern):
         return mset
 
 
-def RakeFile(context:dict, rs:RakeSet, blacklist:list=None, verbose=False):
+def doFile(context:dict, rs:RakeSet, blacklist:list=None, verbose=False):
     '''
     Applies a set of rakes (rs) to the file described in context.
 
@@ -774,7 +789,7 @@ def main(argv):
     for d in cfg.PATH:
         dw = DirectoryWalker(d)
         for context in dw:
-            findings = RakeFile(context, rs, verbose=False)
+            findings = doFile(context, rs, verbose=False)
             for f in findings:
                 print(f)
 

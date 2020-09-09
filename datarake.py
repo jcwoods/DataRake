@@ -185,12 +185,24 @@ class RakePKIKeyFiles(RakeFileMeta):
         RakeFileMeta.__init__(self, 'x509 key file', ext=r"^(pem|pfx|p12|p7b|key)$")
         return
 
+class RakeKeystoreFiles(RakeFileMeta):
+    '''
+    Files often related with Java keystores.
+    TODO:  test default/simple passwords (changeit, changeme, password)
+    '''
+    def __init__(self):
+        RakeFileMeta.__init__(self, 'java keystore', 
+                              file=r"^keystore$",
+                              ext=r"^(jks|keystore)$",
+                              all=False)
+        return
+
 class RakeHtpasswdFiles(RakeFileMeta):
     '''
     Apache htpasswd files.
     '''
     def __init__(self):
-        RakeFileMeta.__init__(self, 'x509 key file', ext=r"^(pem|pfx|p12|p7b|key)$")
+        RakeFileMeta.__init__(self, 'apache htpasswd', file=r"^\.?htpasswd$")
         return
 
 class FiletypeContextRake(Rake):
@@ -804,6 +816,16 @@ class RakeBase64(RakePattern):
         return mset
 
 
+class RakeSSHPass(RakePattern):
+    '''
+    Find uses of sshpass command (non-interactive ssh authentication).
+    '''
+    def __init__(self, **kwargs):
+        kp = r'sshpass'
+        RakePattern.__init__(self, kp, 'sshpass use', ignorecase=False, **kwargs)
+        return
+
+
 def parseCmdLine(argv):
     parser = argparse.ArgumentParser()
 
@@ -854,6 +876,9 @@ def parseCmdLine(argv):
     parser.add_argument("-df", "--disable-dangerous-files", action='store_true',
                         required=False, default=False,
                         help="disable detection of dangerous files")
+    parser.add_argument("-dc", "--disable-dangerous-commands", action='store_true',
+                        required=False, default=False,
+                        help="disable detection of dangerous commands")
 
     parser.add_argument("PATH", default=None, nargs="+",
                         help="Path to be (recursively) searched.")
@@ -911,6 +936,11 @@ def main(argv):
         rs.add(RakeSSHIdentity())
         rs.add(RakeNetrc())
         rs.add(RakePKIKeyFiles())
+        rs.add(RakeHtpasswdFiles())
+        rs.add(RakeKeystoreFiles())
+
+    if not cfg.disable_dangerous_commands:
+        rs.add(RakeSSHPass())
 
     for d in cfg.PATH:
         dw = DirectoryWalker(d)

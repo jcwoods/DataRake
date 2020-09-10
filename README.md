@@ -2,7 +2,7 @@
 > Cloned from upstream https://github.com/jcwoods/DataRake on 2020-09-02.  This version contains:
 > * Dockerfile, to make running it a bit easier.
 > * Support for command line options.
-> * Some new checks (auth headers, JWT)
+> * Some new checks (auth headers, JWT, file metadata)
 > * Improved documentation.
 > * Bug fixes.
 >

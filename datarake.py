@@ -821,7 +821,7 @@ class RakeSSHPass(RakePattern):
     Find uses of sshpass command (non-interactive ssh authentication).
     '''
     def __init__(self, **kwargs):
-        kp = r'sshpass'
+        kp = r'\b(sshpass .+)'
         RakePattern.__init__(self, kp, 'sshpass use', ignorecase=False, **kwargs)
         return
 

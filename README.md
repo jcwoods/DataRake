@@ -48,6 +48,10 @@ To run from command line:
       -dk, --disable-private-keys
                             disable scan for private key files.
       -du, --disable-urls   disable scan for credentials in URLs
+      -df, --disable-dangerous-files
+                            disable detection of dangerous files
+      -dc, --disable-dangerous-commands
+                            disable detection of dangerous commands
 
 
 To run from Docker image (with defaults), bind your directory to /scan:
@@ -70,8 +74,8 @@ The DirectoryWalker is implemented as an iterator.
 In general, a Rake is an abstract base class which finds "issues".  When an issue is found, it creates a RakeMatch.
 
 Rake contains subclasses:
-* RakePattern - a pattern-based detector.  This will be discussed further below.
-* FileTypeContextRake - applies different patterns based on file type (extension).  These are discussed further below.
+* RakePattern - a pattern-based detector.
+* FileTypeContextRake - applies different patterns based on file type (extension).
 * RakeEntropy - detects areas within files that rank as high entropy (randomness, as keys, passwords, etc).  Entropy measure is discussed further below.
 * RakeFileMeta - identifies issues based on file metadata, such as names (eg, id_rsa, .npmrc).
 
@@ -85,8 +89,9 @@ A regex-based detection engine. Not useful by itself, RakePattern is further sub
 *  RakeBearerAuth - detect Bearer authentication tokens (as might appear in an HTTP Authorization header)
 *  RakeBasicAuth - detect Basic authentication tokens (as might appear in an HTTP Authorization header).  The decoded value must be base64-encoded and match "user:password" pattern.
 *  RakeAWSHMACAuth - detect Bearer authentication tokens (as might appear in an HTTP Authorization header)
-*  RakeJWT - d
-*  RakeBase64
+*  RakeJWT - detect Javascript web tokens (JWT)
+*  RakeBase64 - detect base64-encoded text data (UTF-8 encoded)
+*  RakeSSHPass - detect use of the 'sshpass' command.
 
 ### FileTypeContextRake
 
@@ -106,6 +111,16 @@ A parameter is required which specifies the length of strings considered as well
 * 32 character substrings.  This covers a minimum of 128-bit hex encoded key.
 * An entropy score of 4.875.  The maximum score for a 32 character string is 5, so this requires very random data (eg, perhaps one repeated character of the 32).
 
+### RakeFileMeta
+
+Given metainformation about a file (path, name, type, etc), perform some basic checks.
+
+* RakeSSHIdentity - detect SSH identity (private key) files
+* RakeNetrc - detect .netrc files
+* RakePKIKeyFiles - detect file types commonly associated with PKI/X.509 certificates
+* RakeKeystoreFiles - detect common Java keystore files
+* RakeHtpasswdFiles - detect Apache .htpasswd files
+
 ## RakeSet
 
 A RakeSet is a collection of Rakes.  File metadata and content are fed to the RakeSet, and each Rake is applied in turn.
@@ -119,10 +134,8 @@ When a Rake identifies an issue, it generates a RakeMatch.  The RakeMatch includ
 * Package as a real python module ;)
 * Add unit tests to detect regressions, measure improvements.
 * Add a configuration file.  This would be more flexible than command line.
-* Support whitelist or blacklist of file extensions per-Rake.
 * Support "git clone" of repositories rather than local files only.
 * Add common patterns from shhgit (GCP, AWS, Azure, Slack, etc).
-* Scan for "dangerous" files (ssh keys, npmrc, knife.rb, etc.)
 * Include scanning for JDBC URL patterns
 * Allow filters to remove noisy false positives (URLs with "example.com", suppress base64 hits in .pem, .crt, id_*, etc)
 * (maybe) find a data sciency way to reduce false positives.  Generating labelled data is fairly easy.

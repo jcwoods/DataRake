@@ -1,5 +1,6 @@
 import argparse
 import base64
+import csv
 import json
 import math
 import os
@@ -296,6 +297,7 @@ class RakePassword(FiletypeContextRake):
     '''
     Detect passwords embedded in code or configurations.  This is context
     sensitive (based on file type).
+    TODO: support php "key => value" syntax
     '''
 
     def __init__(self, minlength=6, **kwargs):
@@ -521,6 +523,13 @@ class RakeMatch(object):
         lb = self.label if self.label is not None else ""
         hit = self.hit if self.hit is not None else ""
         return "|".join((f, ln, lb, hit))
+
+    def aslist(self):
+        f = self.file if self.file is not None else ""
+        ln = str(self.line) if self.line is not None else ""
+        lb = self.label if self.label is not None else ""
+        hit = self.hit if self.hit is not None else ""
+        return [f, ln, lb, hit]
 
 
 class RakeEntropy(Rake):
@@ -942,12 +951,16 @@ def main(argv):
     if not cfg.disable_dangerous_commands:
         rs.add(RakeSSHPass())
 
+    ocsv = sys.stdout
+    w = csv.writer(ocsv)
+
     for d in cfg.PATH:
         dw = DirectoryWalker(d)
         for context in dw:
             findings = rs.match(context)
             for f in findings:
-                print(f)
+                w.writerow(f.aslist())
+
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

@@ -58,7 +58,7 @@ To run from Docker image (with defaults), bind your directory to /scan:
 
     docker run -v /local/volume:/scan datarake
 
-The given path(s) will be traversed recursively.  Pipe-delimited output includes filename, line number, match type, and match value.  This data is easily imported into your favorite spreadsheet.
+The given path(s) will be traversed recursively.  CSV output includes filename, line number, match type, and match value.  This data is easily imported into your favorite spreadsheet.
 
 # Design Notes
 

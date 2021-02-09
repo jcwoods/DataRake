@@ -18,7 +18,7 @@ With pip configured to use the innerspace-pypi repository, installation should b
 ### Command line args
 To run from command line:
 
-    usage: __main__.py [-h] [-n] [-e] [-d DOMAIN] [-j] [-dp] [-dt] [-dh] [-dk] [-du] [-df] [-dc] [-f {csv,json,insights}] [-o OUTPUT] [-s] [-dx] [-dv] [PATH [PATH ...]]
+    usage: __main__.py [-h] [-n] [-e] [-d DOMAIN] [-j] [-dp] [-dt] [-dh] [-dk] [-du] [-df] [-dc] [-f {csv,json}] [-o OUTPUT] [-s] [-dx] [-dv] [PATH [PATH ...]]
     
     positional arguments:
       PATH                  Path to be (recursively) searched.
@@ -44,7 +44,7 @@ To run from command line:
                             disable detection of dangerous files
       -dc, --disable-dangerous-commands
                             disable detection of dangerous commands
-      -f {csv,json,insights}, --format {csv,json,insights}
+      -f {csv,json}, --format {csv,json}
                             Output format
       -o OUTPUT, --output OUTPUT
                             Output location (defaults to stdout)
@@ -52,14 +52,6 @@ To run from command line:
       -dx, --disable-context
                             Disable output of context match
       -dv, --disable-value  Disable output of secret match
-
-## Running with docker
-
-To run from Docker image (with defaults), bind your directory to /scan:
-
-    docker run -v $PWD:$PWD -w $PWD dtr.cdl.es.ad.adp.com/innerspace/datarake . 
-
-The given path(s) will be traversed recursively. 
 
 # Design Notes
 

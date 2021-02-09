@@ -178,7 +178,6 @@ class Rake(object):
         while relpath[0] == '/':
             relpath = relpath[1:]
 
-        #print(f"relpath:  {relpath}")
         return  relpath
 
     def filter(self, m=None):
@@ -365,7 +364,7 @@ class RakeToken(FiletypeContextRake):
 
         # c, c++, java
         r = r'((auth)?tok(en)?[ \t]*=[ \t]*"([\x21\x23-\x26\x28-\x7e]{' + str(minlength) + r',})")'
-        rake = RakePattern(r, self.ptype, self.pdesc, self.severity, ctx_group=0, val_group=4)
+        rake = RakePattern(r, self.ptype, self.pdesc, self.severity, ctx_group=0, val_group=3)
         self.addRakePattern("c", rake)
         self.addRakePattern("h", rake)
         self.addRakePattern("cc", rake)
@@ -1109,4 +1108,3 @@ class RakeSSHPass(RakePattern):
                                   'HIGH',
                                   ctx_group=0, val_group=2, ignorecase=False, **kwargs)
         return
-

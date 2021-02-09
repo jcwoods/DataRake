@@ -1,11 +1,24 @@
 # Running DataRake
 A regex-based forensics tool used to extract secrets (passwords, tokens, keys, etc) from directories full of text files.
 
+DataRake can be installed for local use or run from an OCI (Docker) container.  Each method is documented below.
+
+## Running Local
+
+The packages are in the artifactoryprod PyPI repository at https://artifactoryprod.es.ad.adp.com/artifactory/api/pypi/innerspace-pypi/simple.  Add this repository to your ~/.pip/pip.conf file either as your index-url or as an extra-index-url:
+
+    [global]
+    index-url = ...(your primary index here)...
+    extra-index-url =  https://artifactoryprod.es.ad.adp.com/artifactory/api/pypi/innerspace-pypi/simple
+
+With pip configured to use the innerspace-pypi repository, installation should be as simple as:
+
+    $ pip install datarake
+
+### Command line args
 To run from command line:
 
-    usage: datarake.py [-h] [-n] [-e] [-d DOMAIN] [-r [ENTROPY]] [-b [BASE64]]
-                       [-j] [-dp] [-dt] [-dh] [-dk] [-du]
-                       PATH [PATH ...]
+    usage: __main__.py [-h] [-n] [-e] [-d DOMAIN] [-j] [-dp] [-dt] [-dh] [-dk] [-du] [-df] [-dc] [-f {csv,json,insights}] [-o OUTPUT] [-s] [-dx] [-dv] [PATH [PATH ...]]
     
     positional arguments:
       PATH                  Path to be (recursively) searched.
@@ -15,20 +28,8 @@ To run from command line:
       -n, --hostname        scan for hostnames, optionally rooted in DOMAIN.
       -e, --email           scan for email addresses, optionally rooted in DOMAIN.
       -d DOMAIN, --domain DOMAIN
-                            for hostname and emails, require that they are rooted
-                            in DOMAIN. If no DOMAIN is specified and either
-                            hostname or email matching is enabled, any pattern
-                            matching a host or email will be reported
-      -r [ENTROPY], --random [ENTROPY]
-                            scan for high entropy strings. ENTROPY is a threshold
-                            formatted <bytes>:<entropy>, where <bytes> is the
-                            length of substrings measured within the text and
-                            <entropy> is the Shanon entropy score. If you're
-                            unsure what this means, start with ENTROPY set as
-                            '32:4.875' and tune from there.
-      -b [BASE64], --base64 [BASE64]
-                            scan for base64-encoded text with minimum encoded
-                            length of BASE64.
+                            for hostname and emails, require that they are rooted in DOMAIN. If no DOMAIN is specified and either hostname or email matching is enabled, any pattern matching a host or
+                            email will be reported
       -j, --jwt             scan for Javascript Web Tokens (JWT)
       -dp, --disable-passwords
                             disable scan for passwords
@@ -43,13 +44,22 @@ To run from command line:
                             disable detection of dangerous files
       -dc, --disable-dangerous-commands
                             disable detection of dangerous commands
+      -f {csv,json,insights}, --format {csv,json,insights}
+                            Output format
+      -o OUTPUT, --output OUTPUT
+                            Output location (defaults to stdout)
+      -s, --secure          Enable secure output mode (no secrets displayed)
+      -dx, --disable-context
+                            Disable output of context match
+      -dv, --disable-value  Disable output of secret match
 
+## Running with docker
 
 To run from Docker image (with defaults), bind your directory to /scan:
 
-    docker run -v /local/volume:/scan datarake
+    docker run -v $PWD:$PWD -w $PWD dtr.cdl.es.ad.adp.com/innerspace/datarake . 
 
-The given path(s) will be traversed recursively.  CSV output includes filename, line number, match type, and match value.  This data is easily imported into your favorite spreadsheet.
+The given path(s) will be traversed recursively. 
 
 # Design Notes
 
@@ -122,11 +132,9 @@ When a Rake identifies an issue, it generates a RakeMatch.  The RakeMatch includ
 
 # TODO:
 
-* Package as a real python module ;)
+(done) * Package as a real python module ;)
 * Add unit tests to detect regressions, measure improvements.
 * Add a configuration file.  This would be more flexible than command line.
-* Support "git clone" of repositories rather than local files only.
 * Add common patterns from shhgit (GCP, AWS, Azure, Slack, etc).
-* Include scanning for JDBC URL patterns
-* Allow filters to remove noisy false positives (URLs with "example.com", suppress base64 hits in .pem, .crt, id_*, etc)
+* Include scanning for credentials embedded in JDBC URL patterns
 * (maybe) find a data sciency way to reduce false positives.  Generating labelled data is fairly easy.

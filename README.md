@@ -1,24 +1,7 @@
-# Running DataRake
-A regex-based forensics tool used to extract secrets (passwords, tokens, keys, etc) from directories full of text files.
-
-DataRake can be installed for local use or run from an OCI (Docker) container.  Each method is documented below.
-
-## Running Local
-
-The packages are in the artifactoryprod PyPI repository at https://artifactoryprod.es.ad.adp.com/artifactory/api/pypi/innerspace-pypi/simple.  Add this repository to your ~/.pip/pip.conf file either as your index-url or as an extra-index-url:
-
-    [global]
-    index-url = ...(your primary index here)...
-    extra-index-url =  https://artifactoryprod.es.ad.adp.com/artifactory/api/pypi/innerspace-pypi/simple
-
-With pip configured to use the innerspace-pypi repository, installation should be as simple as:
-
-    $ pip install datarake
-
-### Command line args
+# Command line args
 To run from command line:
 
-    usage: __main__.py [-h] [-n] [-e] [-d DOMAIN] [-j] [-dp] [-dt] [-dh] [-dk] [-du] [-df] [-dc] [-f {csv,json}] [-o OUTPUT] [-s] [-dx] [-dv] [PATH [PATH ...]]
+    usage: datarake [-h] [-n] [-e] [-d DOMAIN] [-j] [-dp] [-dt] [-dh] [-dk] [-du] [-df] [-dc] [-f {csv,json}] [-o OUTPUT] [-s] [-dx] [-dv] [PATH [PATH ...]]
     
     positional arguments:
       PATH                  Path to be (recursively) searched.

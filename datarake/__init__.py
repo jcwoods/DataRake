@@ -158,6 +158,10 @@ class Rake(object):
     applied repeatedly.
     '''
 
+    # some common values used in Rake filters
+    common_usernames = [ 'username', 'usern', 'user' ]
+    common_passwords = [ 'password', 'passwd', 'passw', 'pass' ]
+
     def __init__(self, ptype, pdesc, severity, part = 'content'):
         self.name = self.__class__.__name__
         self.ptype = ptype        # rake type (password, token, private key, etc)
@@ -244,7 +248,8 @@ class RakeFileMeta(Rake):
             if not self.ext_pattern.match(ext): return False
             if not self.all_required: return m
 
-        return m
+        if self.filter(m): return m
+        return False
 
 
 class RakeSSHIdentity(RakeFileMeta):
@@ -341,7 +346,7 @@ class FiletypeContextRake(Rake):
                 return []
 
         mset = rake.match(context, text)
-        return mset
+        return filter(self.filter, mset)
 
 
 class RakeToken(FiletypeContextRake):
@@ -359,7 +364,7 @@ class RakeToken(FiletypeContextRake):
 
         # add the default pattern (no other match)
         r = r"(([\"']?)(auth)?tok(en)?(\2)[ \t]*[=:][ \t]*(['\"]?)([\x21\x23-\x26\x28-\x7e]{" + str(minlength) + r",})(\6))"
-        rake = RakePattern(r, self.ptype, self.pdesc, self.severity, ctx_group=0, val_group=5)
+        rake = RakePattern(r, self.ptype, self.pdesc, self.severity, ctx_group=0, val_group=6)
         self.addRakePattern(None, rake)
 
         # c, c++, java
@@ -445,7 +450,7 @@ class RakePassword(FiletypeContextRake):
     def filter(self, m=None):
         val = m.value
         if val is None: return True
-        if val.lower() in ['password']: return False
+        if val.lower() in Rake.common_passwords: return False
         return True
 
 
@@ -507,7 +512,7 @@ class RakePattern(Rake):
             rm.match_groups = m  # save the groups for later use in filters
             mset.append(rm)
 
-        return mset
+        return filter(self.filter, mset)
 
 
 class RakeSet(object):
@@ -543,7 +548,6 @@ class RakeSet(object):
                                file=Rake.relPath(context['basepath'],
                                context['fullpath']),
                                line=None)
-                if rake.filter(rm) is False: continue
                 hits.append(rm)
 
         return hits
@@ -553,7 +557,6 @@ class RakeSet(object):
         for rake in self.content_rakes:
             mset = rake.match(context, text)
             for m in mset:
-                if rake.filter(m) is False: continue
                 matches.append(m)
 
         return matches
@@ -854,11 +857,22 @@ class RakeHostname(RakePattern):
                                    **kwargs)
         return
 
+    def filter(self, m):
+        val = m.value
+        parts = val.split(".")
+
+        if len(parts) < 3:
+            return False
+
+        if parts[-1].lower() not in RakeHostname.TLDs:
+            return False
+
+        return True
+
 
 class RakeURL(RakePattern):
     '''
-    Detect URLs.  If credentials is set to True (default), only URLs with
-    embedded credentials will be reported.
+    Detect URLs containing basic auth credentials.
     '''
 
     def __init__(self, **kwargs):
@@ -888,7 +902,8 @@ class RakeURL(RakePattern):
         passw = groups[3]
         host = groups[4]
 
-        if usern.lower() in ['user', 'username'] and passw.lower() in ['pass', 'password']:
+        if usern.lower() in Rake.common_usernames and \
+           passw.lower() in Rake.common_passwords:
             return False
 
         dparts = host.lower().split('.')
@@ -1010,7 +1025,7 @@ class RakeBasicAuth(RakePattern):
             m.set_value(value=val, offset=6, length=len(encoded))
             mset.append(m)
 
-        return mset
+        return filter(self.filter, mset)
 
 
 class RakeJWTAuth(RakePattern):
@@ -1075,7 +1090,7 @@ class RakeJWTAuth(RakePattern):
             rm.set_value(value=token, length=len(token), offset=text.find(token))
             mset.append(rm)
 
-        return mset
+        return filter(self.filter, mset)
 
 
 class RakeAWSHMACAuth(RakePattern):

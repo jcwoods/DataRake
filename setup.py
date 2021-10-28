@@ -30,7 +30,7 @@ setup(
     long_description=long_description,
 
     # The project's main homepage.
-    url='http://bitbucket.es.ad.adp.com/projects/scan/repos/datarake/browse',
+    url='http://github.com/jcwoods/datarake',
 
     # Author details
     author='Jeff Woods',

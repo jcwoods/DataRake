@@ -1,4 +1,4 @@
-FROM debian:latest
+FROM debian:bullseye
 RUN apt update && apt install -y pypy3 && mkdir -p /app && mkdir -p /scan
 ADD datarake.py /app/datarake.py
 

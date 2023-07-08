@@ -1,0 +1,203 @@
+Global:
+  IgnorePasswords: []
+  IgnoreUsers:     []
+  CommonTLDs:      [ 'au', 'br', 'cn', 'com', 'de', 'edu', 'gov', 'in', 'info',
+                     'ir', 'mil', 'net', 'nl', 'org', 'ru', 'tk', 'top', 'uk' ]
+
+# Configure the DirectoryWalker.  This is the module which iterates through
+# a directory, returning a list of files to be scanned. 
+DirectoryWalker:
+
+# ExcludeSubdirs: a list of directories which, if found, will be skipped.
+  ExcludeSubdirs: [ '.git' ]
+
+# ExcludeFileExtensions: a list of file extensions which, if found, will be
+# skipped.  Matches on file extensions are case INSENSITIVE.
+  ExcludeFileExtensions: [ 'doc', 'xls', 'docx', 'xlsx', 'ppt', 'pptx', 'pdf',
+                           'zip', 'gz', 'tgz', 'tar', 'z', 'bz2', 'xz',
+                           'jar', 'war', 'ear', 'class',
+                           'png', 'gif', 'bmp', 'tiff',
+                           'so', 'a',
+                           'exe', 'dll' ]
+
+Rakes:
+- name: ssh identity file
+  type: FileMeta
+  description: file possibly containing an ssh private key
+  severity: HIGH
+  path: null
+  file: "id_(rsa1?|dsa|ecdsa|ed25519)"
+  extension: null
+  all: false
+  ignorecase: false
+  enabled: true
+- name: netrc file
+  type: FileMeta
+  description: file likely containing network credentials
+  severity: HIGH
+  path: null
+  file: "\\.?netrc$"
+  extension: "netrc"
+  all: false
+  ignorecase: true
+  enabled: true
+- name: pki file
+  type: FileMeta
+  description: file related to PKI/X509 server certificates or keys
+  severity: MEDIUM
+  path: null
+  file: null
+  extension: "^(pem|pfx|p12|p7b|key)$"
+  all: false
+  ignorecase: true
+  enabled: true
+- name: java keystore file
+  type: FileMeta
+  description: Java keystore
+  severity: MEDIUM
+  path: null
+  file: "^keystore$"
+  extension: "^(jks|keystore|ks)$"
+  all: false
+  ignorecase: true
+  enabled: true
+- name: htpasswd file
+  type: FileMeta
+  description: may contain weakly encrypted credentials used to access resources on an Apache web server
+  severity: LOW
+  path: null
+  file: "^\\.?htpasswd$$"
+  extension: null
+  all: false
+  ignorecase: true
+  enabled: true
+- name: token
+  type: ContextPattern
+  description: possible token, authentication key, or similar
+  severity: MEDIUM
+  skipcontexts: [ "htm", "html" ]
+  contexts: 
+  - context: null
+    pattern: '((["'']?)([a-z0-9_]{0,32}tok(en)?)(\2)[ \t]*[=:][ \t]*([''"]?)([\x21\x23-\x26\x28-\x7e]{6,})(\5))'
+    keygroup:     3
+    valgroup:     7
+    contextgroup: 1
+    ignorecase: true
+    filters:
+    - type:       regex
+      key:        null
+      value:      '^\$\{[a-z_]+\}[\"\''`]?[.,;]?$' # ${TOKEN}
+      ignorecase: true
+    - type:       regex
+      key:        null
+      value:      '^\{\{\s*[a-z0-9_]+\s*\}\}$'     # {{TOKEN}}
+      ignorecase: true
+    - type:       regex
+      key:        null
+      value:      '^\$\{[a-z0-9_]+\}$'             # $TOKEN
+      ignorecase: true
+    - type:       regex
+      key:        '("?)[Pp]ublicKeyToken(\1)'      # common in csproj/resx files
+      value:      null
+      ignorecase: false
+  - context: [ 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'groovy', 'java' ]
+    pattern: '(([a-z0-9_]{,32}tok(en)?)[ \t]*=[ \t]*"([\x21\x23-\x26\x28-\x7e]{6,})")'
+    keygroup: 2
+    valgroup: 3
+    contextgroup: 1
+    ignorecase: true
+  - context: [ 'js', 'ts', 'py' ]
+    pattern: '(([a-z0-9_]{0,32}tok(en))?[ \t]*=[ \t]*([''\"])([\x21\x23-\x26\x28-\x7e]{6,})(\3))'
+    keygroup: 2
+    valgroup: 4
+    contextgroup: 1
+    ignorecase: true
+- name: password
+  type: ContextPattern
+  description: possible plaintext password
+  severity: HIGH
+  contexts: 
+  - context: null
+    pattern: '((["'']?)([a-z0-9_]{0,32}pass(w(ord)))(\2)[ \t]*[=:][ \t]*([''"]?)([\x21\x23-\x26\x28-\x7e]{6,})(\5))'
+    keygroup:     3
+    valgroup:     8
+    contextgroup: 1
+    ignorecase: true
+    filters:
+    - type:       regex
+      key:        null
+      value:      '^\$\{[a-z_]+\}[\"\''`]?[.,;]?$' # ${VALUE}
+      ignorecase: true
+    - type:       regex
+      key:        null
+      value:      '^\{\{\s*[a-z0-9_]+\s*\}\}$'     # {{VALUE}}
+      ignorecase: true
+    - type:       regex
+      key:        null
+      value:      '^\$\{[a-z0-9_]+\}$'             # $VALUE
+      ignorecase: true
+  - context: [ 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'groovy', 'java' ]
+    pattern: '(([a-z0-9_]{,32}tok(en)?)[ \t]*=[ \t]*"([\x21\x23-\x26\x28-\x7e]{6,})")'
+    keygroup: 2
+    valgroup: 3
+    contextgroup: 1
+    ignorecase: true
+  - context: [ 'js', 'ts', 'py' ]
+    pattern: '(([a-z0-9_]{0,32}tok(en))?[ \t]*=[ \t]*([''\"])([\x21\x23-\x26\x28-\x7e]{6,})(\3))'
+    keygroup: 2
+    valgroup: 4
+    contextgroup: 1
+    ignorecase: true
+- name: auth url
+  type: SimplePattern
+  pattern: '\b([a-z]{2,8}://(([a-z0-9%+/=\-]+):([a-z0-9%+/=\-]+))@([A-Z0-9_-]{1,63}(\.[A-Z0-9_-]{1,63}){1,6})(:\d{1,5})?(/(\S*)?)?)\b'
+  description: URL containing credentials (basic auth)
+  severity: HIGH
+  contextgroup: 0
+  valgroup: 3
+  ignorecase: true
+
+# ignore common passwords
+# ignore common domains (example, host, hostname, domain, domainname + TLD)
+
+- name: private key
+  type: SimplePattern
+  pattern: '^(-----BEGIN ([A-Z0-9]{2,} )?PRIVATE KEY-----$)'
+  description: private key
+  severity: HIGH
+  contextgroup: 0
+  ignorecase: false
+- name: auth token
+  type: SimplePattern
+  pattern: '((Basic|Bearer)\s+([^''"]\S{7,}))'
+  description: possible value used with Authorization header
+  severity: HIGH
+  valgroup: 2
+  contextgroup: 0
+  ignorecase: false
+  filters:
+  - type:  regex
+    value: '\$\{[a-z_]+\}["\''`]?[.,;]?$'
+    ignorecase: true
+  - type:  regex
+    value: '\{\{\s*[a-z_]+\s*\}\}["\''`]?[.,;]?$'
+    ignorecase: true
+  - type:  regex
+    value: '\$[a-z_]+\$?$'
+    ignorecase: true
+- name: auth aws-hmac-sha256
+  type: SimplePattern
+  pattern: '(AWS-HMAC-SHA256 (.+))$'
+  description: possible AWS HMAC-SHA256 authorization key
+  severity: HIGH
+  valgroup: 1
+  contextgroup: 0
+  ignorecase: false
+- name: sshpass
+  type: SimplePattern
+  pattern: '\b(sshpass .*-p\s?([\''"]?)(\S+)(\1))'
+  description: 
+  severity: HIGH
+  valgroup: 2
+  contextgroup: 0
+  ignorecase: false

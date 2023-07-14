@@ -1,3 +1,8 @@
+import base64
+import json
+import re
+
+from .common import RakeMatch
 
 class Rake(object):
     '''
@@ -112,6 +117,45 @@ class RakeFileMeta(Rake):
         if self.filter(rm): return None
         if any_part: return rm
         return None
+
+    @staticmethod
+    def load(config):
+        '''
+        name: ssh identity file
+        type: FileMeta
+        description: file possibly containing an ssh private key
+        severity: HIGH
+        path: null
+        file: "id_(rsa1?|dsa|ecdsa|ed25519)"
+        extension: null
+        all: false
+        ignorecase: false
+
+        def __init__(self, ptype:str, pdesc:str, severity:str,
+                           path:str=None,    # pattern applied to path (dirname)
+                           file:str=None,    # pattern applied to file name (basename)
+                           ext:str=None,     # pattern applied to file extension
+                           all:str=True,     # pattern applied to path
+                           ignorecase:bool=True,  # set re.IGNORECASE on regex matching
+                           **kwargs):
+
+        '''
+        t = config.get('name', None)
+        d = config.get('description', None)
+        s = config.get('severity', None)
+        p = config.get('path', None)
+        f = config.get('file', None)
+        e = config.get('extension', None)
+        a = bool(config.get('all', True))
+
+        if t is None or d is None or s is None:
+            raise RuntimeError(f"missing required configuration element(s) for rake: {t}")
+
+        if p is None and f is None and e is None:
+            raise RuntimeError(f"at least one of path, file, and extension must be set for rake: {t}")
+
+        o = RakeFileMeta(t, d, s, path=p, file=f, ext=e, all=a)
+        return o
 
 
 class RakePattern(Rake):

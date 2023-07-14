@@ -1,6 +1,14 @@
+import hashlib
+import os
+import sys
+
+from collections import OrderedDict
+
 class RakeMatch:
     pass
 
+class Rake:
+    pass
 
 class DirectoryWalker:
 

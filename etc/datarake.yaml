@@ -1,3 +1,4 @@
+verbose: true
 Global:
   IgnorePasswords: []
   IgnoreUsers:     []
@@ -9,7 +10,7 @@ Global:
 DirectoryWalker:
 
 # ExcludeSubdirs: a list of directories which, if found, will be skipped.
-  ExcludeSubdirs: [ '.git' ]
+  ExcludeSubdirs: [ '.git', '__pycache__' ]
 
 # ExcludeFileExtensions: a list of file extensions which, if found, will be
 # skipped.  Matches on file extensions are case INSENSITIVE.
@@ -157,11 +158,15 @@ Rakes:
 
 - name: private key
   type: SimplePattern
+  # Note:  ignore "ENCRYPTED" private key :)
   pattern: '^(-----BEGIN ([A-Z0-9]{2,} )?PRIVATE KEY-----$)'
   description: private key
   severity: HIGH
   contextgroup: 0
   ignorecase: false
+  filters:
+  - type: literal
+    value: ENCRYPTED
 - name: auth token
   type: SimplePattern
   pattern: '((Basic|Bearer)\s+([^''"]\S{7,}))'
@@ -190,7 +195,7 @@ Rakes:
   ignorecase: false
 - name: sshpass
   type: SimplePattern
-  pattern: '\b(sshpass .*-p\s?([\''"]?)(\S+)(\1))'
+  pattern: '\bsshpass .*-p\s?([\''"]?)(\S+)(\1)'
   description: 
   severity: HIGH
   valgroup: 2

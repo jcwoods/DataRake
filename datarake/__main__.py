@@ -261,23 +261,26 @@ def parseCmdLine(argv):
     parser.add_argument("-v", "--verbose", required=False, action="store_true", default=False,
                         help="Enable verbose (diagnostic) output")
 
+    parser.add_argument("-c", "--config", nargs=1, required=False, type=str, default="etc/datarake.yaml",
+                        help="Configuration file")
     return parser.parse_args(argv[1:])
 
 def loadConfig(cfile:str="etc/datarake.yaml"):
     with open(cfile, "r") as fd:
-        cfg = yaml.safe_load()
+        cfg = yaml.safe_load(fd)
 
-    rs = RakeSet(verbose=cfg.verbose)
+    verbose = bool(cfg.get('verbose', False))
+
+    rs = RakeSet(verbose=verbose)
 
     for r in cfg['Rakes']:
-        if   r['type'] == "ContextPattern": c = RakeContextPattern()
-        elif r['type'] == "FileMeta":       c = RakeFileMeta()
-        elif r['type'] == "SimplePattern":  c = RakePattern()
+        if   r['type'] == "ContextPattern": c = RakeContextPattern
+        elif r['type'] == "FileMeta":       c = RakeFileMeta
+        elif r['type'] == "SimplePattern":  c = RakePattern
         else:
             raise RuntimeError(f"ERROR: unsupported Rake type: {r['type']}")
 
-        rake = c()
-        c.load(r)
+        rake = c.load(r)
         rs.add(rake)
 
     return rs
@@ -289,7 +292,8 @@ def main(argv=sys.argv):
     if cfg.disable_context: RakeMatch.disable_context()
     if cfg.disable_value: RakeMatch.disable_value()
 
-    rs = loadConfig(cfg.config_file)
+    rs = loadConfig(cfg.config)
+    sys.exit(0)
 
     if cfg.output is None:
         fd = sys.stdout

@@ -42,7 +42,7 @@ from .common import RakeSet
 from .rakes import Rake
 from .rakes import RakeFileMeta
 from .rakes import RakePattern
-from .rakes import FiletypeContextRake
+from .rakes import RakeContextPattern
 from .rakes import RakeHostname
 from .rakes import RakeEmail
 from .rakes import RakeBasicAuth

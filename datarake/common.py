@@ -246,7 +246,8 @@ class RakeMatch(object):
         self._file = file
         self._line = line
 
-        # these will be set by set_value() and set_context()
+        # these will be set by set_key(), set_value(), and set_context()
+        self._key = None
         self._value = None
         self._context = None
 
@@ -302,6 +303,7 @@ class RakeMatch(object):
             if k == 'label': return self._label
             if k == 'severity': return self._severity
             if k == 'description': return self._description
+
             if k == 'value_offset':
                 if self._value is None: return None
                 return self._value[0]
@@ -327,6 +329,9 @@ class RakeMatch(object):
                 if RakeMatch._secure: return self.secureContext()
 
                 return self._context[2]
+
+        if k == 'key':
+            return self._key[2] if self._key is not None else None
 
         if k == 'external_id':
             i = "\u001e".join(map(lambda x: str(x), self.aslist()))  # \u001e is information (field) separator
@@ -374,6 +379,19 @@ class RakeMatch(object):
         RakeMatch.fields['value_offset'] = False
         RakeMatch.fields['value_length'] = False
         RakeMatch.fields['value'] = False
+        return
+
+    def set_key(self, key:str=None, offset:int=None, length:int=None):
+        '''
+        key differs from value and context in that it will (generally) not be
+        output.  It is optional, and used (almost) exclusively for match
+        filtering.
+        '''
+
+        if length is None:
+            length = len(key)
+
+        self._key = (offset, length, key)
         return
 
     def set_value(self, value:str=None, offset:int=None, length:int=None):
@@ -437,4 +455,3 @@ class RakeMatch(object):
                              "length": self.value_length }
 
         return d
-

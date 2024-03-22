@@ -78,6 +78,9 @@ class RakeFilter(object):
             return RakeRegexFilter.load(config)
 
         raise RuntimeError(f"Invalid filter type: {t}")
+    
+    def match(self, context:RakeMatch):
+        raise RuntimeError("Abstract method RakeFilter.match() called")
 
 
 class RakeLiteralFilter(RakeFilter):
@@ -131,13 +134,13 @@ class RakeRegexFilter(RakeFilter):
         if key is None and val is None:
             raise RuntimeError("One of key or value must be set for regex filter.")
 
-        ref = 0   # default re flags
-        if self.ignorecase: ref = re.IGNORECASE
-        kp = re.compile(key, flags=ref) if key is not None else None
-        vp = re.compile(val, flags=ref) if val is not None else None
+        flags = 0   # default re flags
+        if self.ignorecase:
+            flags = re.IGNORECASE
 
-        self._key = kp
-        self._val = vp
+        self._key = re.compile(key, flags=flags) if key is not None else None
+        self._val = re.compile(val, flags=flags) if val is not None else None
+
         return
 
     def __str__(self):
@@ -345,14 +348,14 @@ class RakePattern(Rake):
 
     def filter(self, m:RakeMatch):
         '''
-        return False if result should be filtered.
+        Check filters against given match.  A single positive match is enough
+        to return False (indicating result should be filtered).
+
+        Returns False if result should be filtered.
         '''
 
-        # check all filters.  A single positive match is enough to return
-        # False (indicating result should be filtered).
         for f in self.filters:
-            # TODO - needs an implementation :)
-            pass
+            if not f.match(m): return False
 
         return True
 
@@ -452,6 +455,7 @@ class RakeContextPattern(Rake):
                 rc.addContext(x, o)
 
         return rc
+
 
 class RakeHostname(RakePattern):
     '''

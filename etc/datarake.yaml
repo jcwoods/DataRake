@@ -1,7 +1,18 @@
-verbose: true
+verbose: false
 Global:
-  IgnorePasswords: []
-  IgnoreUsers:     []
+  # passwords which, if found, will be suppressed
+  IgnorePasswords: [ 'password' ]
+
+  # user names which, if found related to a secret, will be suppressed
+  IgnoreUsers:     [ 'example', 'user' ]
+
+  # host names names which, if found related to a secret, will be suppressed.
+  # These are hostnames, not domains!  Any domain might be used with these (eg,
+  # "example" might be "example.com" or "example.org")
+  IgnoreHosts:     [ 'example', 'domain' ]
+
+  # common top level domains.  A host name will not pass a "is host?" check
+  # unless it ends with one of these.
   CommonTLDs:      [ 'au', 'br', 'cn', 'com', 'de', 'edu', 'gov', 'in', 'info',
                      'ir', 'mil', 'net', 'nl', 'org', 'ru', 'tk', 'top', 'uk' ]
 
@@ -9,11 +20,12 @@ Global:
 # a directory, returning a list of files to be scanned. 
 DirectoryWalker:
 
-# ExcludeSubdirs: a list of directories which, if found, will be skipped.
+  # ExcludeSubdirs: a list of directories which, if found, will be skipped.
   ExcludeSubdirs: [ '.git', '__pycache__' ]
 
-# ExcludeFileExtensions: a list of file extensions which, if found, will be
-# skipped.  Matches on file extensions are case INSENSITIVE.
+  # Even though we only search text files (non-text data will abort scanning
+  # on a file), these extensions will never be read.  Matches on file
+  # extensions are case INSENSITIVE.
   ExcludeFileExtensions: [ 'doc', 'xls', 'docx', 'xlsx', 'ppt', 'pptx', 'pdf',
                            'zip', 'gz', 'tgz', 'tar', 'z', 'bz2', 'xz',
                            'jar', 'war', 'ear', 'class',
@@ -167,6 +179,7 @@ Rakes:
   filters:
   - type: literal
     value: ENCRYPTED
+    ignorecase: false
 - name: auth token
   type: SimplePattern
   pattern: '((Basic|Bearer)\s+([^''"]\S{7,}))'
@@ -185,18 +198,10 @@ Rakes:
   - type:  regex
     value: '\$[a-z_]+\$?$'
     ignorecase: true
-- name: auth aws-hmac-sha256
-  type: SimplePattern
-  pattern: '(AWS-HMAC-SHA256 (.+))$'
-  description: possible AWS HMAC-SHA256 authorization key
-  severity: HIGH
-  valgroup: 1
-  contextgroup: 0
-  ignorecase: false
 - name: sshpass
   type: SimplePattern
   pattern: '\bsshpass .*-p\s?([\''"]?)(\S+)(\1)'
-  description: 
+  description: use of hard-coded password with sshpass
   severity: HIGH
   valgroup: 2
   contextgroup: 0

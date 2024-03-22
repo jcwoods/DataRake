@@ -293,7 +293,6 @@ def main(argv=sys.argv):
     if cfg.disable_value: RakeMatch.disable_value()
 
     rs = loadConfig(cfg.config)
-    sys.exit(0)
 
     if cfg.output is None:
         fd = sys.stdout

@@ -1,13 +1,11 @@
 import hashlib
 import os
+import re
 import sys
 
 from collections import OrderedDict
 
-class RakeMatch:
-    pass
-
-class Rake:
+class RakeMatch:  # forward declaration so we can use type in Rake()
     pass
 
 class DirectoryWalker:
@@ -78,140 +76,55 @@ class DirectoryWalker:
 
         return context
 
-
-class RakeSet(object):
+class Rake(object):
     '''
-    A wrapper (list) of RakePattern objects.  Each pattern in this list will
-    be evaluated against each line of input text.
+    A Rake is an abstract "issue finder".  Its subclasses do all of the real
+    work.  When applied or executed, it creates RakeMatch objects.  Rake
+    objects are grouped in RakeSet collections when many Rakes will be
+    applied repeatedly.
     '''
-    def __init__(self, verbose:bool=False):
-        self.content_rakes = list()
-        self.meta_rakes = list()
-        self.verbose = verbose
 
-        # metrics for this rake set
-        self.total_files = 0
-        self.total_lines = 0
-        self.total_hits = 0
-        self.total_size = 0
+    # some common values used in Rake filters
+    common_usernames = [ 'username', 'usern', 'user' ]
+    common_passwords = [ 'password', 'passwd', 'passw', 'pass' ]
 
+    def __init__(self, ptype:str, pdesc:str, severity:str, part:str='content'):
+
+        if part not in ['content', 'filemeta']:
+            raise RuntimeError(f"Invalid part in Rake initializer: {part}")
+
+        self.name = self.__class__.__name__
+        self.ptype = ptype        # rake type (password, token, private key, etc)
+        self.pdesc = pdesc        # long(er) description of rake
+        self.severity = severity  # finding severity
+        self.part = part          # where is rake applied? (content, filemeta, etc.)
         return
 
-    def add(self, rake:Rake):
-        if self.verbose:
-            print("* Adding new Rake: " + str(rake), file=sys.stderr)
+    def __str__(self):
+        return f"<Rake({self.name}, {self.ptype}, {self.part})>"
 
-        if rake.part == 'filemeta':
-            self.meta_rakes.append(rake)
-            return
+    @staticmethod
+    def relPath(basepath:str, fullpath:str):
 
-        if rake.part == 'content':
-            self.content_rakes.append(rake)
-            return
+        bplen = len(basepath)
+        relpath = fullpath[bplen:]
 
-        raise RuntimeError("Unknown rake type")
+        while relpath[0] == '/':
+            relpath = relpath[1:]
 
-    def match_context(self, context:dict):
-        hits = list()
-        for rake in self.meta_rakes:
-            if rake.match(context):
-                rm = RakeMatch(rake,
-                               file=Rake.relPath(context['basepath'],
-                               context['fullpath']),
-                               line=None)
-                if rake.filter(rm) is False: continue
-                hits.append(rm)
+        return  relpath
 
-        return hits
+    def filter(self, m:RakeMatch):
+        '''
+        A generic filter method.  If filter() returns false (eg, a match should
+        be filtered), the result will not be added to the result set.
 
-    def match_content(self, context, text:str):
-        matches = []
-        for rake in self.content_rakes:
-            if self.verbose: print(f"using rake: {rake} at {context}: {text}")
-            mset = rake.match(context, text)
-            for m in mset:
-                if rake.filter(m) is False: continue
-                matches.append(m)
-
-        return matches
-
-    def match(self, context:dict, blacklist=None):
-        if blacklist is None:
-            blacklist = [".exe", ".dll", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
-                         ".tiff", ".zip", ".doc", ".docx", ".xls", ".xlsx",
-                         ".pdf", ".tar", ".tgz", ".gz", ".tar.gz",
-                         ".jar", ".war", "ear", ".class", ".css" ]
-
-        if self.verbose:
-            print(f"* New context: {str(context)}", file=sys.stderr)
-
-        path = context.get("path", None)
-        filename = context.get("filename", None)
-        context['lineno'] = None
-
-        findings = list()
-
-        if path is None or filename is None:
-            # log an error here
-            if self.verbose:
-                print("* Context is invalid?", file=sys.stderr)
-            return findings
-
-        fullpath = context.get("fullpath", None)
-        if fullpath is None:
-            fullpath = os.path.join(path, filename)
-
-        for ext in blacklist:
-            # log message here
-            if ext == filename[-len(ext):].lower():
-                if self.verbose:
-                    print(f"* File matches blacklisted extension: {ext}", file=sys.stderr)
-                return findings
-
-        if self.verbose:
-            print("* Applying context Rakes", file=sys.stderr)
-
-        context_hits = self.match_context(context)
-        if len(context_hits) > 0:
-            findings.extend(context_hits)
-
-        try:
-            fd = open(fullpath, encoding="utf-8")
-        except FileNotFoundError:
-            if self.verbose:
-                print(f"* Unable to open file: {fullpath}", file=sys.stderr)
-            return findings
-
-        if self.verbose:
-            print(f"* Applying content Rakes", file=sys.stderr)
-
-        try:
-            lineno = 1
-            for line in fd:
-                if self.verbose and lineno % 100 == 0:
-                    print(f"* {lineno} lines processed ({fullpath})", file=sys.stderr)
-
-                context['lineno'] = lineno
-                hits = self.match_content(context, line)
-                findings.extend(hits)
-
-                lineno += 1
-        except UnicodeDecodeError:
-            # simply can't process this file due to encoding -- skip it.
-            lineno = 0
-
-        fd.close()
-
-        self.total_files += 1
-        self.total_lines += lineno
-        self.total_hits += len(findings)
-
-        try:
-            self.total_size += os.stat(fullpath).st_size
-        except (FileNotFoundError, PermissionError):
-            pass
-
-        return findings
+        Note that this is only a fail-safe, and that filters must be
+        implemented within the context of a specific Rake-type.  The 'm'
+        (match) parameter may be of different types and must be interpreted
+        differently.
+        '''
+        return True
 
 
 class RakeMatch(object):
@@ -227,6 +140,9 @@ class RakeMatch(object):
                           ('label', True),
                           ('severity', True),
                           ('description', True),
+                          ('key_offset', False),
+                          ('key_length', False),
+                          ('key', False),
                           ('value_offset', True),
                           ('value_length', True),
                           ('value', True),
@@ -234,9 +150,9 @@ class RakeMatch(object):
                           ('context_length', True),
                           ('context', True)))
 
-    _secure = False
-    _disable_context = False
-    _disable_value = False
+    _secure = False            # if set, no "secrets" will be output
+    _disable_context = False   # disable output of context, off, len
+    _disable_value = False     # disable output of value, off, len
     _has_been_read = False
 
     def __init__(self, rake:Rake, file:str=None, line:int=0):
@@ -257,7 +173,7 @@ class RakeMatch(object):
         '''
         Produce a hash which can be use to (reasonably) securely track a
         secret if it moves within a file.  The hash will consist of the file
-        name, length of the context, and the literal value of the context.
+        name, a delimiter, and the literal value of the context.
         '''
         ctx = self._context[2]
         if ctx is None:
@@ -275,14 +191,14 @@ class RakeMatch(object):
         if self._value is not None and match._value is None: return False
         if self._value is not None and match._value is not None:
             if self._value[0] != match._value[0]: return False  # offset
-            if self._value[1] != match._value[1]: return False  # length
+            # if self._value[1] != match._value[1]: return False  # length
             if self._value[2] != match._value[2]: return False  # value
 
         if self._context is None and match._context is not None: return False
         if self._context is not None and match._context is None: return False
         if self._context is not None and match._context is not None:
             if self._context[0] != match._context[0]: return False  # offset
-            if self._context[1] != match._context[1]: return False  # length
+            # if self._context[1] != match._context[1]: return False  # length
             if self._context[2] != match._context[2]: return False  # value
 
         if self._label != match._label: return False
@@ -334,6 +250,7 @@ class RakeMatch(object):
             return self._key[2] if self._key is not None else None
 
         if k == 'external_id':
+            # TODO - check that this is not being used!  Impl differs from secureContext(), above!
             i = "\u001e".join(map(lambda x: str(x), self.aslist()))  # \u001e is information (field) separator
             return hashlib.md5(i.encode('utf-8')).hexdigest()
 
@@ -455,3 +372,246 @@ class RakeMatch(object):
                              "length": self.value_length }
 
         return d
+
+
+class RakeSet(object):
+    '''
+    A wrapper (list) of RakePattern objects.  Each pattern in this list will
+    be evaluated against each line of input text.
+    '''
+    def __init__(self, verbose:bool=False):
+        self.content_rakes = list()
+        self.meta_rakes = list()
+        self.verbose = verbose
+
+        # metrics for this rake set
+        self.total_files = 0
+        self.total_lines = 0
+        self.total_hits = 0
+        self.total_size = 0
+
+        return
+
+    def add(self, rake:Rake):
+        if self.verbose:
+            print("* Adding new Rake: " + str(rake), file=sys.stderr)
+
+        if rake.part == 'filemeta':
+            self.meta_rakes.append(rake)
+            return
+
+        if rake.part == 'content':
+            self.content_rakes.append(rake)
+            return
+
+        raise RuntimeError("Unknown rake type")
+
+    def match_context(self, context:dict):
+        hits = list()
+        for rake in self.meta_rakes:
+            if rake.match(context):
+                rm = RakeMatch(rake,
+                               file = Rake.relPath(context['basepath'],
+                               context['fullpath']),
+                               line = None)
+                if rake.filter(rm) is False: continue
+                hits.append(rm)
+
+        return hits
+
+    def match_content(self, context, text:str):
+        matches = []
+        for rake in self.content_rakes:
+            if self.verbose: print(f"using rake: {rake} at {context}: {text}")
+            mset = rake.match(context, text)
+            for m in mset:
+                if rake.filter(m) is False: continue
+                matches.append(m)
+
+        return matches
+
+    def match(self, context:dict, blacklist=None):
+        if blacklist is None:
+            blacklist = [".exe", ".dll", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
+                         ".tiff", ".zip", ".doc", ".docx", ".xls", ".xlsx",
+                         ".pdf", ".tar", ".tgz", ".gz", ".tar.gz",
+                         ".jar", ".war", "ear", ".class", ".css" ]
+
+        if self.verbose:
+            print(f"* New context: {str(context)}", file=sys.stderr)
+
+        path = context.get("path", None)
+        filename = context.get("filename", None)
+        context['lineno'] = None
+
+        findings = list()
+
+        if path is None or filename is None:
+            # log an error here
+            if self.verbose:
+                print("* Context is invalid?", file=sys.stderr)
+            return findings
+
+        fullpath = context.get("fullpath", None)
+        if fullpath is None:
+            fullpath = os.path.join(path, filename)
+
+        for ext in blacklist:
+            # log message here
+            if ext == filename[-len(ext):].lower():
+                if self.verbose:
+                    print(f"* File matches blacklisted extension: {ext}", file=sys.stderr)
+                return findings
+
+        if self.verbose:
+            print("* Applying context Rakes", file=sys.stderr)
+
+        context_hits = self.match_context(context)
+        if len(context_hits) > 0:
+            findings.extend(context_hits)
+
+        try:
+            fd = open(fullpath, encoding="utf-8")
+        except FileNotFoundError:
+            if self.verbose:
+                print(f"* Unable to open file: {fullpath}", file=sys.stderr)
+            return findings
+
+        if self.verbose:
+            print(f"* Applying content Rakes", file=sys.stderr)
+
+        try:
+            lineno = 1
+            for line in fd:
+                if self.verbose and lineno % 100 == 0:
+                    print(f"* {lineno} lines processed ({fullpath})", file=sys.stderr)
+
+                context['lineno'] = lineno
+                hits = self.match_content(context, line)
+                findings.extend(hits)
+
+                lineno += 1
+        except UnicodeDecodeError:
+            # simply can't process this file due to encoding -- skip it.
+            lineno = 0
+
+        fd.close()
+
+        self.total_files += 1
+        self.total_lines += lineno
+        self.total_hits += len(findings)
+
+        try:
+            self.total_size += os.stat(fullpath).st_size
+        except (FileNotFoundError, PermissionError):
+            pass
+
+        return findings
+
+
+class RakeFilter(object):
+    def __init__(self, ignorecase:bool=False):
+        self.ignorecase = ignorecase
+        return
+
+    @staticmethod
+    def load(config:dict):
+        t = config.get('type', None)
+        if t is None: raise RuntimeError("Filter type not specified.")
+
+        if t.lower() == "regex":
+            return RakeRegexFilter.load(config)
+
+        if t.lower() == "literal":
+            return RakeLiteralFilter.load(config)
+
+        raise RuntimeError(f"Invalid filter type: {t}")
+    
+    def match(self, context:RakeMatch):
+        raise RuntimeError("Abstract method RakeFilter.match() called")
+
+
+class RakeLiteralFilter(RakeFilter):
+    def __init__(self, key:str=None, val:str=None, ignorecase:bool=False):
+        RakeFilter.__init__(self, ignorecase = ignorecase)
+
+        if key is None and val is None:
+            raise RuntimeError("One of key or value must be set for literal filter.")
+
+        if self.ignorecase:
+            key = key.lower() if key is not None else None
+            val = val.lower() if val is not None else None
+
+        self._key = key
+        self._val = val
+        return
+
+    def __str__(self):
+        return f"<RakeLiteralFilter(key={self._key}, val={self._val})>"
+
+    def match(self, match:RakeMatch):
+        # Note that one of self._val or self._key MUST be set.
+        if self._val is not None:
+            v = match.value
+            if self.ignorecase:
+                v = v.lower()
+            
+            if v != self._val: return False
+
+        if self._key is not None:
+            k = match.key
+            if self.ignorecase:
+                k = k.lower()
+            
+            if k != self._key: return False
+
+        return True
+
+    @staticmethod
+    def load(config:dict):
+        k = config.get('key', None)
+        v = config.get('value', None)
+        i = config.get('ignorecase', False)
+        return RakeLiteralFilter(key=k, val=v, ignorecase=i)
+
+
+class RakeRegexFilter(RakeFilter):
+    def __init__(self, key:str=None, val:str=None, ignorecase:bool=False):
+        RakeFilter.__init__(self, ignorecase = ignorecase)
+
+        if key is None and val is None:
+            raise RuntimeError("One of key or value must be set for regex filter.")
+
+        flags = 0   # default re flags
+        if self.ignorecase:
+            flags = re.IGNORECASE
+
+        self._key = re.compile(key, flags=flags) if key is not None else None
+        self._val = re.compile(val, flags=flags) if val is not None else None
+
+        return
+
+    def __str__(self):
+        return f"<RakeRegexFilter(key={self._key}, val={self._val})>"
+
+    def match(self, match:RakeMatch):
+        # Note that one of self._val or self._key MUST be set.
+        # TODO: check ignorecase flag?
+        if self._val is not None:
+            mv = match.value
+            print(f"MV: {mv}")
+            if not self._val.match(mv): return False
+            
+        if self._key is not None:
+            mk = match.key
+            print(f"MK: {mk}")
+            if not self._key.match(mk): return False
+            
+        return True
+
+    @staticmethod
+    def load(config:dict):
+        k = config.get('key', None)
+        v = config.get('value', None)
+        i = config.get('ignorecase', False)
+        return RakeRegexFilter(key=k, val=v, ignorecase=i)

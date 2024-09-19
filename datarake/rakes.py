@@ -3,168 +3,9 @@ import json
 import re
 import sys
 
+from .common import Rake
 from .common import RakeMatch
-
-class Rake(object):
-    '''
-    A Rake is an abstract "issue finder".  Its subclasses do all of the real
-    work.  When applied or executed, it creates RakeMatch objects.  Rake
-    objects are grouped in RakeSet collections when many Rakes will be
-    applied repeatedly.
-    '''
-
-    # some common values used in Rake filters
-    common_usernames = [ 'username', 'usern', 'user' ]
-    common_passwords = [ 'password', 'passwd', 'passw', 'pass' ]
-
-    def __init__(self, ptype:str, pdesc:str, severity:str, part:str='content'):
-
-        if part not in ['content', 'filemeta']:
-            raise RuntimeError(f"Invalid part in Rake initializer: {part}")
-
-        self.name = self.__class__.__name__
-        self.ptype = ptype        # rake type (password, token, private key, etc)
-        self.pdesc = pdesc        # long(er) description of rake
-        self.severity = severity  # finding severity
-        self.part = part          # where is rake applied? (content, filemeta, etc.)
-        return
-
-    def __str__(self):
-        return f"<Rake({self.name}, {self.ptype}, {self.part})>"
-
-    @staticmethod
-    def relPath(basepath:str, fullpath:str):
-
-        bplen = len(basepath)
-        relpath = fullpath[bplen:]
-
-        while relpath[0] == '/':
-            relpath = relpath[1:]
-
-        return  relpath
-
-    def filter(self, m:RakeMatch):
-        '''
-        A generic filter method.  If filter() returns false (eg, a match should
-        be filtered), the result will not be added to the result set.
-
-        Note that this is only a fail-safe, and that filters must be
-        implemented within the context of a specific Rake-type.  The 'm'
-        (match) parameter may be of different types and must be interpreted
-        differently.
-        '''
-        return True
-
-class RakeLiteralFilter:   # forward declaration
-    pass
-
-class RakeRegexFilter:     # forward declaration
-    pass
-
-class RakeFilter(object):
-    def __init__(self, ignorecase:bool=False):
-        self.ignorecase = ignorecase
-        return
-
-    @staticmethod
-    def load(config:dict):
-        t = config.get('type', None)
-        if t is None: raise RuntimeError("Filter type not specified.")
-
-        if t.lower() == "regex":
-            return RakeRegexFilter.load(config)
-
-        if t.lower() == "literal":
-            return RakeRegexFilter.load(config)
-
-        raise RuntimeError(f"Invalid filter type: {t}")
-    
-    def match(self, context:RakeMatch):
-        raise RuntimeError("Abstract method RakeFilter.match() called")
-
-
-class RakeLiteralFilter(RakeFilter):
-    def __init__(self, key:str=None, val:str=None, ignorecase:bool=False):
-        RakeFilter.__init__(self, ignorecase = ignorecase)
-
-        if key is None and val is None:
-            raise RuntimeError("One of key or value must be set for literal filter.")
-
-        if self.ignorecase:
-            key = key.lower() if key is not None else None
-            val = val.lower() if val is not None else None
-
-        self._key = key
-        self._val = val
-        return
-
-    def __str__(self):
-        return f"<RakeLiteralFilter(key={self._key}, val={self._val})>"
-
-    def match(self, match:RakeMatch):
-        # Note that one of self._val or self._key MUST be set.
-        if self._val is not None:
-            v = match.value
-            if self.ignorecase:
-                v = v.lower()
-            
-            if v != self._val: return False
-
-        if self._key is not None:
-            k = match.key
-            if self.ignorecase:
-                k = k.lower()
-            
-            if k != self._key: return False
-
-        return True
-
-    @staticmethod
-    def load(config:dict):
-        k = config.get('key', None)
-        v = config.get('value', None)
-        i = config.get('ignorecase', False)
-        return RakeLiteralFilter(key=k, val=v, ignorecase=i)
-
-
-class RakeRegexFilter(RakeFilter):
-    def __init__(self, key:str=None, val:str=None, ignorecase:bool=False):
-        RakeFilter.__init__(self, ignorecase = ignorecase)
-
-        if key is None and val is None:
-            raise RuntimeError("One of key or value must be set for regex filter.")
-
-        flags = 0   # default re flags
-        if self.ignorecase:
-            flags = re.IGNORECASE
-
-        self._key = re.compile(key, flags=flags) if key is not None else None
-        self._val = re.compile(val, flags=flags) if val is not None else None
-
-        return
-
-    def __str__(self):
-        return f"<RakeRegexFilter(key={self._key}, val={self._val})>"
-
-    def match(self, match:RakeMatch):
-        # Note that one of self._val or self._key MUST be set.
-        if self._val is not None:
-            mv = match.value
-            if not self._val.match(mv): return False
-            
-        if self._key is not None:
-            mk = match.key
-            if not self._key.match(mk): return False
-            
-        return True
-
-    @staticmethod
-    def load(config:dict):
-        k = config.get('key', None)
-        v = config.get('value', None)
-        i = config.get('ignorecase', False)
-        return RakeRegexFilter(key=k, val=v, ignorecase=i)
-
+from .common import RakeFilter
 
 class RakeFileMeta(Rake):
     '''
@@ -365,9 +206,9 @@ class RakePattern(Rake):
         Create a RakeFileMeta given a Rake configuration from datarake.yaml
         '''
 
-        n = config.get('name', "<-None->")
+        n = config.get('name', "<-NotNamed->")
         p = config.get('pattern', None)
-        d = config.get('description', "<-None->")
+        d = config.get('description', "<-NoDesc->")
         s = config.get('severity', "LOW")
         kg = config.get('keygroup', None)
         cg = config.get('contextgroup', None)
@@ -403,7 +244,7 @@ class RakeContextPattern(Rake):
         return
 
     def match(self, context:dict, text:str):
-        mset = []
+        mset = []  # TODO
 
         results = filter(self.filter, mset)
         return list(results)
@@ -686,12 +527,15 @@ class RakeJWTAuth(RakePattern):
 
 def SentinalRake(Rake):
     '''
-    A SentinalRake requires two passes of the data.  In the first pass, it
-    looks for a sentinal pattern.  If found, a second pass is made through
-    the file looking for the target pattern.  This is useful where the
-    presence of two patterns correlates, but either pattern alone is not of
-    much interest.  Ex:  a cloud provider's identity and a secret key.
+    A SentinalRake checks for the occurrence of two patterns in a single pass
+    of the data.  This might be useful when searching for a cloud account id
+    and key.  The key might be a very generic pattern, but it is worth paying
+    attention to if the account ID is also present in the same file.
+
+    To do this, the rake tracks state.  Both rakes (the sentinal and the
+    primary) must be present before the primary is reported.
     '''
+
     def __init__(self, pattern:str, ptype:str, pdesc:str, severity:str,
                        ctx_group:int=None, val_group:int=None, ignorecase:bool=True):
         return

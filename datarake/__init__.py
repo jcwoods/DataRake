@@ -38,8 +38,8 @@ Assumptions:
 from .common import RakeMatch
 from .common import DirectoryWalker
 from .common import RakeSet
+from .common import Rake
 
-from .rakes import Rake
 from .rakes import RakeFileMeta
 from .rakes import RakePattern
 from .rakes import RakeContextPattern

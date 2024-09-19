@@ -39,10 +39,11 @@ Rakes:
   description: file possibly containing an ssh private key
   severity: HIGH
   path: null
-  file: "id_(rsa1?|dsa|ecdsa|ed25519)"
+  file: "^id_(rsa1?|dsa|ecdsa|ed25519)$"
   extension: null
   all: false
   ignorecase: false
+
 - name: netrc file
   type: FileMeta
   description: file likely containing network credentials
@@ -52,6 +53,7 @@ Rakes:
   extension: "netrc"
   all: false
   ignorecase: true
+
 - name: pki file
   type: FileMeta
   description: file related to PKI/X509 server certificates or keys
@@ -61,6 +63,7 @@ Rakes:
   extension: "^(pem|pfx|p12|p7b|key)$"
   all: false
   ignorecase: true
+
 - name: java keystore file
   type: FileMeta
   description: Java keystore
@@ -70,6 +73,7 @@ Rakes:
   extension: "^(jks|keystore|ks)$"
   all: false
   ignorecase: true
+
 - name: htpasswd file
   type: FileMeta
   description: may contain weakly encrypted credentials used to access resources on an Apache web server
@@ -79,6 +83,7 @@ Rakes:
   extension: null
   all: false
   ignorecase: true
+
 - name: token
   type: ContextPattern
   description: possible token, authentication key, or similar

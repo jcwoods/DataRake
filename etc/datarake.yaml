@@ -150,16 +150,32 @@ Rakes:
       value:      '^\$\{[a-z0-9_]+\}$'             # $VALUE
       ignorecase: true
   - context: [ 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'groovy', 'java' ]
-    pattern: '(([a-z0-9_]{,32}tok(en)?)[ \t]*=[ \t]*"([\x21\x23-\x26\x28-\x7e]{6,})")'
-    keygroup: 2
-    valgroup: 3
-    contextgroup: 1
+    # require an '=' delimiter, unquoted key, and double-quoted value
+    pattern: '((\S{,32}pass(w(ord)?)?)\s*=\s*"([\x21\x23-\x26\x28-\x7e]{6,})")'
+    keygroup: 1
+    valgroup: 4
+    contextgroup: 0
     ignorecase: true
   - context: [ 'js', 'ts', 'py' ]
-    pattern: '(([a-z0-9_]{0,32}tok(en))?[ \t]*=[ \t]*([''\"])([\x21\x23-\x26\x28-\x7e]{6,})(\3))'
-    keygroup: 2
+    # require an '=' delimiter, unquoted key, and single- or double-quoted (' or ") value
+    pattern: '((\S{,32}pass(w(ord)?)?)\s*=\s*(["''])([\x21\x23-\x26\x28-\x7e]{6,})(\5))'
+    keygroup: 1
+    valgroup: 5
+    contextgroup: 0
+    ignorecase: true
+  - context: [ 'yaml', 'yml' ]
+    # require a ':' delimiter, unquoted key, and optionally-quoted (' or ") value
+    pattern: '((\S{,32}pass(w(ord)?)?)\s*:\s*(["''])?([\x21\x23-\x26\x28-\x7e]{6,})(\5))'
+    keygroup: 1
+    valgroup: 5
+    contextgroup: 0
+    ignorecase: true
+  - context: [ 'json' ]
+    # require a ':' delimiter, double quoted key, and double-quoted value
+    pattern: '((\S{,32}"pass(w(ord)?)?)"\s*:\s*"([\x21\x23-\x26\x28-\x7e]{6,})")'
+    keygroup: 1
     valgroup: 4
-    contextgroup: 1
+    contextgroup: 0
     ignorecase: true
 - name: auth url
   type: SimplePattern

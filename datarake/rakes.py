@@ -241,18 +241,36 @@ class RakeContextPattern(Rake):
     def __init__(self, ptype:str, pdesc:str, severity:str):
 
         Rake.__init__(self, ptype, pdesc, severity)
+        self.patterns = {}
+
         return
 
     def match(self, context:dict, text:str):
         mset = []  # TODO
+        ft = context.get('filetype', None)
 
-        results = filter(self.filter, mset)
-        return list(results)
+        # attempt to load a pattern for the current context
+        p = self.patterns.get(ft, None)
 
-    def addContext(self, ctx:str, rp:RakePattern):
+        if p is None:
+            # take default pattern if no match to context
+            p = self.patterns.get(None, None)
+
+        if p is None: return []  # if still no pattern, return no match.
+
+        results = p.match(context, text)
+        return results
+
+    def addContext(self, ft:str, rp:RakePattern):
         '''
-        Add a RakePattern (ro) to the given context (ctx)
+        Add a RakePattern (rp) to the given context (ctx)
         '''
+        if self.patterns.get(ft, None) is not None:
+            e = f"Multiple definitions for file type {ft} in rake {self.name}"
+            raise RuntimeError(e)
+
+        self.patterns[ ft ] = rp
+        return
 
     @staticmethod
     def load(config):
@@ -269,7 +287,7 @@ class RakeContextPattern(Rake):
         for c in config.get("contexts", []):
             ctx = c.get('context', None)
 
-            if not isinstance(ctx, list):
+            if not isinstance(ctx, list):    # these are the file types to which this pattern will be applied
                 ctx = [ ctx ]
 
             p = c.get('pattern', None)
@@ -292,8 +310,8 @@ class RakeContextPattern(Rake):
                 fo = RakeFilter.load(f)
                 o.addFilter(fo)
 
-            for x in ctx:
-                rc.addContext(x, o)
+            for ft in ctx:
+                rc.addContext(ft, o)
 
         return rc
 

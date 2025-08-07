@@ -3,14 +3,20 @@ import os
 import re
 import sys
 
+from typing import Optional, Union
 from collections import OrderedDict
 
-class RakeMatch:  # forward declaration so we can use type in Rake()
+# forward declaration so we can use type in Rake()
+class RakeMatch:  # type: ignore
     pass
 
 class DirectoryWalker:
 
-    def __init__(self, path:str=".", blacklist=None, verbose:bool=False):
+    def __init__(self,
+                 path:str=".",
+                 blacklist:Optional[list]=None,
+                 verbose:bool=False):
+
         '''
         path is the path to be traversed.
 
@@ -19,7 +25,7 @@ class DirectoryWalker:
         '''
 
         if blacklist is None:
-            blacklist = [ '.svn', '.git', '__pycache__' ]
+            blacklist = [ '.svn', '.git' ]
 
         self.blacklist = blacklist
         self.basepath = path
@@ -104,7 +110,7 @@ class Rake(object):
         return f"<Rake({self.name}, {self.ptype}, {self.part})>"
 
     @staticmethod
-    def relPath(basepath:str, fullpath:str):
+    def relPath(basepath:str, fullpath:str) -> str:
 
         bplen = len(basepath)
         relpath = fullpath[bplen:]
@@ -114,7 +120,7 @@ class Rake(object):
 
         return  relpath
 
-    def filter(self, m:RakeMatch):
+    def filter(self, m:RakeMatch) -> bool:
         '''
         A generic filter method.  If filter() returns false (eg, a match should
         be filtered), the result will not be added to the result set.
@@ -155,7 +161,11 @@ class RakeMatch(object):
     _disable_value = False     # disable output of value, off, len
     _has_been_read = False
 
-    def __init__(self, rake:Rake, file:str=None, line:int=0):
+    def __init__(self,
+                 rake:Rake,
+                 file:Optional[str]=None,
+                 line:Optional[int]=0): 
+
         self._label = rake.ptype
         self._description = rake.pdesc
         self._severity = rake.severity
@@ -163,30 +173,32 @@ class RakeMatch(object):
         self._line = line
 
         # these will be set by set_key(), set_value(), and set_context()
-        self._key = None
-        self._value = None
-        self._context = None
+        self._key:Optional[tuple] = None
+        self._value:Optional[tuple] = None
+        self._context:Optional[tuple]= None
 
         return
 
-    def secureContext(self):
+    def secureContext(self) -> str:
         '''
         Produce a hash which can be use to (reasonably) securely track a
         secret if it moves within a file.  The hash will consist of the file
         name, a delimiter, and the literal value of the context.
         '''
+
+        if self._context is None: return ""
         ctx = self._context[2]
         if ctx is None:
             return ""
 
         md5 = hashlib.md5()
-        md5.update(self._file.encode('utf-8'))
+        md5.update(self._file.encode('utf-8') if self._file is not None else b"")
         md5.update(bytes([0x00]))
         md5.update(ctx.encode('utf-8'))   # context value
 
         return md5.hexdigest()
 
-    def __eq__(self, match):
+    def __eq__(self, match) -> bool:
         if self._value is None and match._value is not None: return False
         if self._value is not None and match._value is None: return False
         if self._value is not None and match._value is not None:
@@ -209,7 +221,7 @@ class RakeMatch(object):
 
         return True
 
-    def __getattr__(self, k):
+    def __getattr__(self, k) -> Union[str, int, None]:
         RakeMatch._has_been_read = True
 
         if k in RakeMatch.fields.keys():
@@ -257,7 +269,7 @@ class RakeMatch(object):
         raise KeyError(f"Invalid key for RakeMatch: {k}")
 
     @staticmethod
-    def csv_header():
+    def csv_header() -> list:
         RakeMatch._has_been_read = True
         fields = []
         for f in RakeMatch.fields.keys():
@@ -267,7 +279,7 @@ class RakeMatch(object):
         return fields
 
     @staticmethod
-    def set_secure():
+    def set_secure() -> None:
         if RakeMatch._has_been_read:
             raise RuntimeError("must not modify RakeMatch structure after read")
 
@@ -277,7 +289,7 @@ class RakeMatch(object):
         return
 
     @staticmethod
-    def disable_context():
+    def disable_context() -> None:
         if RakeMatch._has_been_read:
             raise RuntimeError("must not modify RakeMatch structure after read")
 
@@ -288,7 +300,7 @@ class RakeMatch(object):
         return
 
     @staticmethod
-    def disable_value():
+    def disable_value() -> None:
         if RakeMatch._has_been_read:
             raise RuntimeError("must not modify RakeMatch structure after read")
 
@@ -298,7 +310,10 @@ class RakeMatch(object):
         RakeMatch.fields['value'] = False
         return
 
-    def set_key(self, key:str=None, offset:int=None, length:int=None):
+    def set_key(self,
+                key:str,
+                offset:Optional[int]=None,
+                length:Optional[int]=None) -> None:
         '''
         key differs from value and context in that it will (generally) not be
         output.  It is optional, and used (almost) exclusively for match
@@ -311,16 +326,28 @@ class RakeMatch(object):
         self._key = (offset, length, key)
         return
 
-    def set_value(self, value:str=None, offset:int=None, length:int=None):
+    def set_value(self,
+                  value:str,
+                  offset:Optional[int]=None,
+                  length:Optional[int]=None) -> None:
+
         if length is None:
             length = len(value)
+        else:
+            self._length = length
 
         self._value = (offset, length, value)
         return
 
-    def set_context(self, value:str=None, offset:int=None, length:int=None):
+    def set_context(self,
+                    value:str,
+                    offset:Optional[int]=None,
+                    length:Optional[int]=None):
+
         if length is None:
             self._length = len(value)
+        else:
+            self._length = length
 
         self._context = (offset, length, value)
         return
@@ -329,7 +356,7 @@ class RakeMatch(object):
         RakeMatch._has_been_read = True
         return "|".join(map(lambda x: str(x), self.aslist()))
 
-    def aslist(self):
+    def aslist(self) -> list:
         RakeMatch._has_been_read = True
         outp = []
 
@@ -527,12 +554,16 @@ class RakeFilter(object):
 
         raise RuntimeError(f"Invalid filter type: {t}")
     
-    def match(self, context:RakeMatch):
+    def match(self, match:RakeMatch) -> bool:
         raise RuntimeError("Abstract method RakeFilter.match() called")
 
 
 class RakeLiteralFilter(RakeFilter):
-    def __init__(self, key:str=None, val:str=None, ignorecase:bool=False):
+    def __init__(self,
+                 key:Optional[str]=None,
+                 val:Optional[str]=None,
+                 ignorecase:bool=False):
+
         RakeFilter.__init__(self, ignorecase = ignorecase)
 
         if key is None and val is None:
@@ -546,20 +577,24 @@ class RakeLiteralFilter(RakeFilter):
         self._val = val
         return
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<RakeLiteralFilter(key={self._key}, val={self._val})>"
 
-    def match(self, match:RakeMatch):
+    def match(self, match:RakeMatch) -> bool:
         # Note that one of self._val or self._key MUST be set.
         if self._val is not None:
-            v = match.value
+            v = str(match.value) if match.value is not None else None
+            if v is None: return False
+
             if self.ignorecase:
                 v = v.lower()
             
             if v != self._val: return False
 
         if self._key is not None:
-            k = match.key
+            k = str(match.key) if match.key is not None else None
+            if k is None: return False
+
             if self.ignorecase:
                 k = k.lower()
             
@@ -568,7 +603,7 @@ class RakeLiteralFilter(RakeFilter):
         return True
 
     @staticmethod
-    def load(config:dict):
+    def load(config:dict) -> RakeFilter:
         k = config.get('key', None)
         v = config.get('value', None)
         i = config.get('ignorecase', False)
@@ -576,7 +611,11 @@ class RakeLiteralFilter(RakeFilter):
 
 
 class RakeRegexFilter(RakeFilter):
-    def __init__(self, key:str=None, val:str=None, ignorecase:bool=False):
+
+    def __init__(self,
+                 key:Optional[str]=None,
+                 val:Optional[str]=None,
+                 ignorecase:bool=False):
         RakeFilter.__init__(self, ignorecase = ignorecase)
 
         if key is None and val is None:
@@ -591,27 +630,26 @@ class RakeRegexFilter(RakeFilter):
 
         return
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<RakeRegexFilter(key={self._key}, val={self._val})>"
 
-    def match(self, match:RakeMatch):
+    def match(self, match:RakeMatch) -> bool:
         # Note that one of self._val or self._key MUST be set.
         # TODO: check ignorecase flag?
         if self._val is not None:
-            mv = match.value
-            print(f"MV: {mv}")
+            mv = str(match.value)
             if not self._val.match(mv): return False
             
         if self._key is not None:
-            mk = match.key
-            print(f"MK: {mk}")
+            mk = str(match.key)
             if not self._key.match(mk): return False
             
         return True
 
     @staticmethod
-    def load(config:dict):
+    def load(config:dict) -> RakeFilter:
         k = config.get('key', None)
         v = config.get('value', None)
         i = config.get('ignorecase', False)
+
         return RakeRegexFilter(key=k, val=v, ignorecase=i)

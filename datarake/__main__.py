@@ -4,6 +4,8 @@ import json
 import sys
 import yaml
 
+from typing import TextIO
+
 from .common import DirectoryWalker
 from .common import RakeMatch
 from .common import RakeSet
@@ -16,7 +18,7 @@ class DataRakeWriter(object):
     '''
     An abstract base class for all DataRake output formats.
     '''
-    def __init__(self, fd=None,              # file/stream to be written
+    def __init__(self, fd:TextIO=sys.stdout, # file/stream to be written
                        quiet:bool=False,     # quiet output enabled (--quiet)
                        summary:bool=True):   # summary output enabled (--summary)
         
@@ -25,28 +27,28 @@ class DataRakeWriter(object):
         self._summary = summary
         return
 
-    def initOutput(self):
+    def initOutput(self) -> None:
         raise RuntimeError("abstract method called")
 
-    def initSecrets(self):
+    def initSecrets(self) -> None:
         raise RuntimeError("abstract method called")
 
-    def writeSecret(self, f):
+    def writeSecret(self, secret) -> None:
         raise RuntimeError("abstract method called")
 
-    def endSecrets(self):
+    def endSecrets(self) -> None:
         raise RuntimeError("abstract method called")
 
-    def initSummary(self):
+    def initSummary(self) -> None:
         raise RuntimeError("abstract method called")
 
-    def writeSummary(self, s):
+    def writeSummary(self, s) -> None:
         raise RuntimeError("abstract method called")
 
-    def endSummary(self):
+    def endSummary(self) -> None:
         raise RuntimeError("abstract method called")
 
-    def endOutput(self):
+    def endOutput(self) -> None:
         raise RuntimeError("abstract method called")
 
 
@@ -55,26 +57,26 @@ class DataRakeCSVWriter(DataRakeWriter):
         super().__init__(**kwargs)
         return
 
-    def initOutput(self):
+    def initOutput(self) -> None:
         self._w = csv.writer(self._fd)
         return
 
-    def initSecrets(self):
+    def initSecrets(self) -> None:
         if self._quiet: return
         self._w.writerow(RakeMatch.csv_header())
         return
 
-    def writeSecret(self, f):
+    def writeSecret(self, secret) -> None:
         if self._quiet: return
-        self._w.writerow(f.aslist())
+        self._w.writerow(secret.aslist())
 
-    def endSecrets(self):
+    def endSecrets(self) -> None:
         return
 
-    def initSummary(self):
+    def initSummary(self) -> None:
         return
 
-    def writeSummary(self, s):
+    def writeSummary(self, s) -> None:
         if not self._summary: return
 
         files = s.get('files', 0)
@@ -100,19 +102,19 @@ class DataRakeJSONWriter(DataRakeWriter):
         super().__init__(**kwargs)
         return
 
-    def initOutput(self):
+    def initOutput(self) -> None:
         print("{", end="", file=self._fd, flush=True)
         self._count = 0
         self._keys_written = 0
         return
 
-    def initSecrets(self):
+    def initSecrets(self) -> None:
         if self._quiet: return
         print("\"secrets\": [", end="", file=self._fd, flush=True)
         self._keys_written += 1
         return
 
-    def writeSecret(self, secret):
+    def writeSecret(self, secret) -> None:
         if self._quiet: return
         if self._count > 0:
             print(",", end="", file=self._fd, flush=True)
@@ -122,13 +124,13 @@ class DataRakeJSONWriter(DataRakeWriter):
         self._count += 1
         return
 
-    def endSecrets(self):
+    def endSecrets(self) -> None:
         if self._quiet: return
         print("]", end="", file=self._fd, flush=True)
 
         return
 
-    def initSummary(self):
+    def initSummary(self) -> None:
         if not self._summary: return
 
         if self._keys_written > 0:
@@ -138,17 +140,17 @@ class DataRakeJSONWriter(DataRakeWriter):
         print("\"summary\": ", end="", file=self._fd, flush=True)
         return
 
-    def writeSummary(self, s):
+    def writeSummary(self, s) -> None:
         if not self._summary: return
         print(json.dumps(s), end="", file=self._fd, flush=True)
         return
 
-    def endSummary(self):
+    def endSummary(self) -> None:
         if not self._summary: return
         # do nothing
         return
 
-    def endOutput(self):
+    def endOutput(self) -> None:
         print("}", file=self._fd, flush=True)
         return
 

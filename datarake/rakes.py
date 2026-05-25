@@ -22,10 +22,10 @@ class RakeFileMeta(Rake):
     '''
 
     def __init__(self, ptype:str, pdesc:str, severity:str,
-                       path:str=None,    # pattern applied to path (dirname)
-                       file:str=None,    # pattern applied to file name (basename)
-                       ext:str=None,     # pattern applied to file extension
-                       all:str=True,     # pattern applied to path
+                       path:str|None=None,    # pattern applied to path (dirname)
+                       file:str|None=None,    # pattern applied to file name (basename)
+                       ext:str|None=None,     # pattern applied to file extension
+                       all:bool=True,     # pattern applied to path
                        ignorecase:bool=False,  # set re.IGNORECASE on regex matching
                        **kwargs):
 
@@ -43,32 +43,32 @@ class RakeFileMeta(Rake):
         fnam = context.get('filename', None)
         ext = context.get('filetype', None)
         full = context.get('fullpath', None)
+        basepath = context.get('basepath', None)
 
-        # create the match up front, just in case!
-        rm = RakeMatch(self, file=full, line=None)
-        any_part = False
+        # build with a relative path so filemeta findings are reported
+        # consistently with content findings (which use relPath in RakePattern.match).
+        relfile = self.relPath(basepath, full) if basepath is not None else full
+        rm = RakeMatch(self, file=relfile, line=None)
 
+        # Evaluate each defined pattern against the corresponding context field.
+        # Skipping a check when the field is None counts as "not matched" rather
+        # than "not defined" -- a file with no extension cannot satisfy an
+        # extension pattern.
+        checks = []
         if self.path_pattern is not None:
-            pm = self.path_pattern.match(path)
-            if not self.all_required and pm is not None: return rm
-            if self.all_required and pm is None: return None
-            any_part = True
-
+            checks.append(path is not None and self.path_pattern.match(path) is not None)
         if self.file_pattern is not None:
-            fm = self.file_pattern.match(fnam)
-            if not self.all_required and fm is not None: return rm
-            if self.all_required and fm is None: return None
-            any_part = True
+            checks.append(fnam is not None and self.file_pattern.match(fnam) is not None)
+        if self.ext_pattern is not None:
+            checks.append(ext is not None and self.ext_pattern.match(ext) is not None)
 
-        if self.ext_pattern is not None and ext is not None:
-            xm = self.ext_pattern.match(ext)
-            if not self.all_required and xm is not None: return rm
-            if self.all_required and xm is None: return None
-            any_part = True
+        if not checks: return None
 
-        if self.filter(rm): return None
-        if any_part: return rm
-        return None
+        matched = all(checks) if self.all_required else any(checks)
+        if not matched: return None
+
+        if not self.filter(rm): return None
+        return rm
 
     @staticmethod
     def load(config):
@@ -110,7 +110,7 @@ class RakePattern(Rake):
     '''
 
     def __init__(self, pattern:str, ptype:str, pdesc:str, severity:str,
-                 ctx_group:int=None, key_group:int=None, val_group:int=None, ignorecase:bool=False):
+                 ctx_group:int|None=None, key_group:int|None=None, val_group:int|None=None, ignorecase:bool=False):
 
         if ctx_group is None:
             raise RuntimeError(f"No context group given for Rake '{ptype}'")
@@ -141,17 +141,14 @@ class RakePattern(Rake):
     def match(self, context:dict, text:str):
         mset = []
 
+        # YAML configs index groups 0-based into a findall tuple (which omits
+        # regex group 0). Translate to finditer's 1-based regex group number
+        # by adding 1.
         relpath = None
-        offset = 0
-        for m in self.pattern.findall(text):
-            if isinstance(m, tuple):
-                key = m[self.key_group] if self.key_group is not None else None
-                val = m[self.val_group] if self.val_group is not None else None
-                ctx = m[self.ctx_group] if self.ctx_group is not None else None
-            else:
-                key = None
-                val = m if self.val_group is not None else None
-                ctx = m if self.ctx_group is not None else None
+        for m in self.pattern.finditer(text):
+            kg = self.key_group + 1 if self.key_group is not None else None
+            vg = self.val_group + 1 if self.val_group is not None else None
+            cg = self.ctx_group + 1 if self.ctx_group is not None else None
 
             if relpath is None:
                 relpath = self.relPath(context['basepath'], context['fullpath'])
@@ -160,34 +157,28 @@ class RakePattern(Rake):
                            file=relpath,
                            line=context['lineno'])
 
-            key_off = 0
-            if key is not None:
-                key_off = text.find(key, offset)
-                key_len = len(key)
-                rm.set_key(key, key_off, key_len)
+            if kg is not None and m.group(kg) is not None:
+                start, end = m.span(kg)
+                rm.set_key(m.group(kg), start, end - start)
 
-            val_off = 0
-            if val is not None:
-                val_off = text.find(val, offset)
-                val_len = len(val)
-                rm.set_value(val, val_off, val_len)
+            if vg is not None and m.group(vg) is not None:
+                start, end = m.span(vg)
+                rm.set_value(m.group(vg), start, end - start)
 
-            ctx_off = 0
-            if ctx is not None:
-                ctx_off = text.find(ctx, offset)
-                ctx_len = len(ctx)
-                rm.set_context(ctx, ctx_off, ctx_len)
+            if cg is not None and m.group(cg) is not None:
+                start, end = m.span(cg)
+                rm.set_context(m.group(cg), start, end - start)
 
-            offset = max(ctx_off, val_off) + 1
-
-            rm.match_groups = m  # save the groups for later use in filters
-            rm.full_context = context  # save the context for later use in filters
+            # Preserve findall's empty-string-for-unmatched-optional-group
+            # semantics so filters that unpack match_groups still work.
+            rm.match_groups = m.groups(default='')
+            rm.full_context = context
             mset.append(rm)
 
         results = filter(self.filter, mset)
         return list(results)
 
-    def filter(self, m:RakeMatch):
+    def filter(self, m:RakeMatch) -> bool:
         '''
         Check filters against given match.  A single positive match is enough
         to return False (indicating result should be filtered).
@@ -337,7 +328,7 @@ class RakeHostname(RakePattern):
     TLDs = [ 'au', 'br', 'cn', 'com', 'de', 'edu', 'gov', 'in', 'info', 'ir',
              'mil', 'net', 'nl', 'org', 'ru', 'tk', 'top', 'uk', 'xyz' ]
 
-    def __init__(self, domain:str=None, **kwargs):
+    def __init__(self, domain:str|None=None, **kwargs):
         if domain is not None:
             d = re.escape(domain)
             r = r'\b(([a-z1-9\-]{1,63}\.)+' + d + r')\b'
@@ -382,11 +373,11 @@ class RakeHostname(RakePattern):
 
         return True
 
-    def filter(self, m:RakeMatch):
+    def filter(self, m:RakeMatch) -> bool:
         fqdn = m.value
         if not RakeHostname.isValidHostname(fqdn):
             return False
-        
+
         return super().filter(m)
 
 
@@ -396,7 +387,7 @@ class RakeEmail(RakePattern):
     the email account must match the specified domain.
     '''
 
-    def __init__(self, domain:str=None, **kwargs):
+    def __init__(self, domain:str|None=None, **kwargs):
         if domain is not None:
             d = re.escape(domain)
             r = r'([a-zA-Z1-9_.\-]{1,63}@' + d + r')'
@@ -415,7 +406,7 @@ class RakeEmail(RakePattern):
                                   **kwargs)
         return
 
-    def filter(self, m:RakeMatch):
+    def filter(self, m:RakeMatch) -> bool:
         email = m.value
         try:
             user, host = email.split("@")
@@ -449,31 +440,17 @@ class RakeBasicAuth(RakePattern):
         self.encoding = encoding
         return
 
-    def match(self, context:dict, text:str):
-        mset = []
-        for match in self.pattern.findall(text):
-            # we may or may not have something juicy... let's attempt to
-            # decode it and see if it checks out!
-            try:
-                encoded = match[1]  # skip leading "Basic " label
-                val = base64.b64decode(encoded, validate=True).decode(self.encoding).strip()
-            except Exception:
-                # not base64 means this probably isn't Basic auth
-                continue
+    def filter(self, m:RakeMatch) -> bool:
+        try:
+            _, encoded = m.match_groups
+            val = base64.b64decode(encoded, validate=True).decode(self.encoding).strip()
+        except Exception:
+            return False
 
-            # does it smell like basic auth?  (user:pass)
-            if not val.isprintable() or val.find(":") < 1:
-                continue
+        if not val.isprintable() or val.find(":") < 1:
+            return False
 
-            m = RakeMatch(self,
-                          file=self.relPath(context['basepath'], context['fullpath']),
-                          line=context['lineno'])
-
-            m.set_context(match[0], offset=0, length=len(match[0]))
-            m.set_value(value=match[1], offset=6, length=len(match[1]))
-            mset.append(m)
-
-        return filter(self.filter, mset)
+        return super().filter(m)
 
 
 class RakeJWTAuth(RakePattern):
@@ -503,57 +480,26 @@ class RakeJWTAuth(RakePattern):
                                   'auth jwt',
                                   'possible JavaScript web token',
                                   'MEDIUM',
+                                  ctx_group=0, val_group=0,
                                   ignorecase=False, **kwargs)
 
         self.encoding = encoding
         return
 
-    def match(self, context:dict, text:str):
-        mset = []
-        relfile = None
-        for m in self.pattern.findall(text):
-            # we may or may not have something juicy... let's attempt to
-            # decode it and see if it checks out!
-            if self.encoding is not None:
-                try:
-                    # all we care is that the base64 and JSON decode works on
-                    # the first two parts of the token.  If either fail, this
-                    # isn't JWT.
+    def filter(self, m:RakeMatch) -> bool:
+        try:
+            _, header_b64, payload_b64, _ = m.match_groups
+        except (AttributeError, ValueError):
+            return False
 
-                    for st in [ m[1], m[2] ]:                      # st is subtoken
-                        npad = len(st) % 4                         # npad is num padding (req'd)
-                        st = st + ("=" * npad)
-                        td = base64.b64decode(st).decode('utf-8')  # td is token data
-                        json.loads(td)
+        # Header and payload must both base64-decode and JSON-parse for this
+        # to plausibly be a JWT; the signature is opaque and not checked.
+        for st in (header_b64, payload_b64):
+            try:
+                st_padded = st + ("=" * (len(st) % 4))
+                td = base64.b64decode(st_padded).decode('utf-8')
+                json.loads(td)
+            except Exception:
+                return False
 
-                except Exception:
-                    continue
-
-            token = m[0]
-
-            if relfile is None:
-                relfile = self.relPath(context['basepath'], context['fullpath'])
-
-            rm = RakeMatch(self,
-                           file=relfile,
-                           line=context['lineno'])
-
-            rm.set_value(value=token, length=len(token), offset=text.find(token))
-            mset.append(rm)
-
-        return filter(self.filter, mset)
-
-def SentinalRake(Rake):
-    '''
-    A SentinalRake checks for the occurrence of two patterns in a single pass
-    of the data.  This might be useful when searching for a cloud account id
-    and key.  The key might be a very generic pattern, but it is worth paying
-    attention to if the account ID is also present in the same file.
-
-    To do this, the rake tracks state.  Both rakes (the sentinal and the
-    primary) must be present before the primary is reported.
-    '''
-
-    def __init__(self, pattern:str, ptype:str, pdesc:str, severity:str,
-                       ctx_group:int=None, val_group:int=None, ignorecase:bool=True):
-        return
+        return super().filter(m)

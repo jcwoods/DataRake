@@ -132,6 +132,16 @@ class Rake(object):
         '''
         return True
 
+    def match(self, *args, **kwargs):
+        '''
+        Abstract method. Subclasses must implement one of two signatures:
+          - filemeta rakes: match(context:dict) -> RakeMatch | None
+          - content rakes:  match(context:dict, text:str) -> list[RakeMatch]
+        The signature is selected by RakeSet based on self.part.
+        '''
+        raise NotImplementedError(
+            f"Abstract method Rake.match() called on {self.__class__.__name__}")
+
 
 class RakeMatch(object):
     '''
@@ -436,13 +446,11 @@ class RakeSet(object):
     def match_context(self, context:dict):
         hits = list()
         for rake in self.meta_rakes:
-            if rake.match(context):
-                rm = RakeMatch(rake,
-                               file = Rake.relPath(context['basepath'],
-                               context['fullpath']),
-                               line = None)
-                if rake.filter(rm) is False: continue
-                hits.append(rm)
+            rm = rake.match(context)
+            # The rake's match() is responsible for applying its own filter
+            # chain and returning None on no-match; we just collect.
+            if rm is None: continue
+            hits.append(rm)
 
         return hits
 
@@ -462,7 +470,7 @@ class RakeSet(object):
             blacklist = [".exe", ".dll", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
                          ".tiff", ".zip", ".doc", ".docx", ".xls", ".xlsx",
                          ".pdf", ".tar", ".tgz", ".gz", ".tar.gz",
-                         ".jar", ".war", "ear", ".class", ".css" ]
+                         ".jar", ".war", ".ear", ".class", ".css" ]
 
         if self.verbose:
             print(f"* New context: {str(context)}", file=sys.stderr)

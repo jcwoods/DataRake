@@ -90,10 +90,10 @@ class DataRakeCSVWriter(DataRakeWriter):
         print(f"hits: {hits}", file=self._fd, flush=True)
         return
 
-    def endSummary(self):
+    def endSummary(self) -> None:
         return
 
-    def endOutput(self):
+    def endOutput(self) -> None:
         return
 
 
@@ -164,7 +164,7 @@ class DataRakeSARIFWriter(DataRakeWriter):
         super().__init__(**kwargs)
         return
 
-    def initOutput(self):
+    def initOutput(self) -> None:
         # per the SARIF standard, version and schema should appear first in
         # the output to permit "sniffing".  This data is constant anyway, so
         # it's not too much trouble to output it correctly.
@@ -175,12 +175,12 @@ class DataRakeSARIFWriter(DataRakeWriter):
               file=self._fd, end="", flush=True)
         return
 
-    def initSecrets(self):
+    def initSecrets(self) -> None:
         print('"results": [ ', file=self._fd, end="", flush=True)
         self._count = 0
         return
 
-    def writeSecret(self, secret):
+    def writeSecret(self, secret) -> None:
         # we do need to be careful with the output here -- it originates from
         # the files being scanned and needs to be properly escaped.  We'll
         # build it into a dict and then use the json module to output it
@@ -217,23 +217,23 @@ class DataRakeSARIFWriter(DataRakeWriter):
         self._count += 1
         return
 
-    def endSecrets(self):
+    def endSecrets(self) -> None:
         print("]}", file=self._fd, end="", flush=True)
         return
 
-    def initSummary(self):
+    def initSummary(self) -> None:
         # summary not supported in SARIF
         return
 
-    def writeSummary(self, s):
+    def writeSummary(self, s) -> None:
         # summary not supported in SARIF
         return
 
-    def endSummary(self):
+    def endSummary(self) -> None:
         # summary not supported in SARIF
         return
 
-    def endOutput(self):
+    def endOutput(self) -> None:
         print("]}", file=self._fd, end="\n", flush=True)
 
 
@@ -263,7 +263,7 @@ def parseCmdLine(argv):
     parser.add_argument("-v", "--verbose", required=False, action="store_true", default=False,
                         help="Enable verbose (diagnostic) output")
 
-    parser.add_argument("-c", "--config", nargs=1, required=False, type=str, default="etc/datarake.yaml",
+    parser.add_argument("-c", "--config", required=False, type=str, default="etc/datarake.yaml",
                         help="Configuration file")
     return parser.parse_args(argv[1:])
 
@@ -298,42 +298,49 @@ def main(argv=sys.argv):
 
     if cfg.output is None:
         fd = sys.stdout
+        close_fd = False
     else:
         fd = open(cfg.output[0], 'w', encoding='utf-8')
+        close_fd = True
 
-    out_format = cfg.format[0]
+    try:
+        out_format = cfg.format[0]
 
-    # verbosity:  secure quiet summary
-    if out_format == 'csv':
-        writer = DataRakeCSVWriter(fd=fd, quiet=cfg.quiet, summary=cfg.summary)
-    elif out_format == 'sarif':
-        writer = DataRakeSARIFWriter(fd=fd, quiet=cfg.quiet, summary=cfg.summary)
-    else:
-        writer = DataRakeJSONWriter(fd=fd, quiet=cfg.quiet, summary=cfg.summary)
+        # verbosity:  secure quiet summary
+        if out_format == 'csv':
+            writer = DataRakeCSVWriter(fd=fd, quiet=cfg.quiet, summary=cfg.summary)
+        elif out_format == 'sarif':
+            writer = DataRakeSARIFWriter(fd=fd, quiet=cfg.quiet, summary=cfg.summary)
+        else:
+            writer = DataRakeJSONWriter(fd=fd, quiet=cfg.quiet, summary=cfg.summary)
 
-    writer.initOutput()
+        writer.initOutput()
 
-    writer.initSecrets()
-    for d in cfg.PATH:
-        dw = DirectoryWalker(d, verbose=cfg.verbose)
-        for context in dw:
-            findings = rs.match(context)
-            for f in findings:
-                writer.writeSecret(f)
+        writer.initSecrets()
+        for d in cfg.PATH:
+            dw = DirectoryWalker(d, verbose=cfg.verbose)
+            for context in dw:
+                findings = rs.match(context)
+                for f in findings:
+                    writer.writeSecret(f)
 
-    writer.endSecrets()
+        writer.endSecrets()
 
-    sfiles = rs.total_files
-    slines = rs.total_lines
-    shits = rs.total_hits      # yes, this I think this is funny ;)
-    ssiz = rs.total_size
-    summary = { "files": sfiles, "lines": slines, "hits": shits, "bytes": ssiz }
+        sfiles = rs.total_files
+        slines = rs.total_lines
+        shits = rs.total_hits      # yes, this I think this is funny ;)
+        ssiz = rs.total_size
+        summary = { "files": sfiles, "lines": slines, "hits": shits, "bytes": ssiz }
 
-    writer.initSummary()
-    writer.writeSummary(summary)
-    writer.endSummary()
+        writer.initSummary()
+        writer.writeSummary(summary)
+        writer.endSummary()
 
-    writer.endOutput()
+        writer.endOutput()
+    finally:
+        if close_fd:
+            fd.close()
+
     return 0
 
 if __name__ == "__main__":

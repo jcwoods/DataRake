@@ -151,7 +151,7 @@ class B64EntropyParser(EntropyParser):
     regex = re.compile(r'(([A-Za-z0-9+/]{4}){3,}([A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{2}==)?)')
     parser = "b64"
 
-    def __init__(self, min_length=9, **kwargs):
+    def __init__(self, min_length:int=9, **kwargs):
         super().__init__(**kwargs)
         self.min_length = min_length
         return
@@ -212,16 +212,19 @@ class B64EntropyParser(EntropyParser):
         # 10/64 (0.15625), and punctuation at 2/64 (0.03125).  Normally, we
         # would "split" the range for +/-, but here we'll allow +/- the full
         # range to allow a more "relaxed" deviation.
+        exp_u = lh * 0.40625   # expected uppercase count
+        exp_l = lh * 0.40625   # expected lowercase count
+        exp_d = lh * 0.15625   # expected digit count
+
         du = lh * m * 0.40625  # delta uppercase (+/- range)
         dl = lh * m * 0.40625  # delta lowercase (+/- range)
         dd = lh * m * 0.15625  # delta digits (+/- range)
-        dp = lh * m * 0.03125  # delta punct (+/- range)
 
-        # make sure we have a reasonable minimum of each class.  Is there at
-        # least half of what we would expect to see?
-        ucase = n_ucase > int(lh - d) and n_ucase <= int(lh + d)
-        lcase = n_lcase > int(lh - d) and n_lcase <= int(lh + d)
-        digits = n_digits > int(lh - d) and n_digits <= int(lh + d)
+        # is the observed count within +/- delta of the expected count for
+        # each class?
+        ucase  = int(exp_u - du) < n_ucase  <= int(exp_u + du)
+        lcase  = int(exp_l - dl) < n_lcase  <= int(exp_l + dl)
+        digits = int(exp_d - dd) < n_digits <= int(exp_d + dd)
 
         # finally, do we keep the hit?
         keep = False
@@ -284,7 +287,7 @@ class TxtEntropyParser(EntropyParser):
 
                 # a pair of parenthesis appear in the correct order, like:
                 # ...function(...)... 
-                re.compile(r'.+\[a-z0-9](.*\)', re.I),   # likely functions
+                re.compile(r'.+[a-z0-9]\(.*\)', re.I),   # likely functions
 
                 # ...function(param1,...
                 re.compile(r'[a-z]\(.+,$', flags=re.I),    # partial function calls
@@ -295,7 +298,8 @@ class TxtEntropyParser(EntropyParser):
 
     parser = "text"
 
-    def __init__(self, minlength=8, upper=True, lower=True, numer=True, symbols=False, **kwargs):
+    def __init__(self, minlength:int=8, upper:bool=True, lower:bool=True,
+                       numer:bool=True, symbols:bool=False, **kwargs):
         super().__init__(**kwargs)
         self.upper = upper
         self.lower = lower

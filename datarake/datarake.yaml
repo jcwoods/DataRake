@@ -32,6 +32,44 @@ DirectoryWalker:
                            'png', 'gif', 'bmp', 'tiff',
                            'so', 'a',
                            'exe', 'dll' ]
+FilterRegistry:
+- NamedFilter:
+    - name:       ShellVariables
+      type:       regex
+      key:        null
+      value:      '^\$[a-z0-9_]+$'                 # $VAR
+      ignorecase: true
+- FilterSet:
+  - name: VariablesNotLiteral
+  - filters:
+    - type:       regex
+      key:        null
+      value:      '^\$[a-z0-9_]+$'                 # $VAR
+      ignorecase: true
+    - type:       regex
+      key:        null
+      value:      '^\$\{\s*[a-z_]+\s*\}$'          # ${VAR}
+      ignorecase: true
+    - type:       regex
+      key:        null
+      value:      '^\{\{\s*[a-z0-9_]+\s*\}\}$'     # {{VAR}}
+      ignorecase: true
+- FilterSet:
+  - name: TestValues
+  - filters:
+    - type:       regex
+      key:        null
+      value:      '^([A-Z])\1+$'                 # XXX, XXXXXX (repetition of same uppercase character)
+      ignorecase: false
+    - type:       regex
+      key:        null
+      value:      '^pass(w(ord|d)?)?$'           # password, passwd, passw
+      ignorecase: true
+    - type:       regex
+      key:        null
+      value:      '^.{1,5}$'                     # length < 6 (password complexity)
+      ignorecase: true
+
 
 Rakes:
 - name: ssh identity file
@@ -130,24 +168,20 @@ Rakes:
   description: possible plaintext password
   severity: HIGH
   contexts: 
-  - context: null
+  - context: null             # default (any unmatched) context
     pattern: '((["'']?)([a-z0-9_]{0,32}pass(w(ord)))(\2)[ \t]*[=:][ \t]*([''"]?)([\x21\x23-\x26\x28-\x7e]{6,})(\5))'
     keygroup:     3
     valgroup:     8
     contextgroup: 1
     ignorecase: true
     filters:
+    - type:       set
+      name:       VariablesNotLiteral
+    - type:       set 
+      name:       TestValues
     - type:       regex
       key:        null
-      value:      '^\$\{[a-z_]+\}[\"\''`]?[.,;]?$' # ${VALUE}
-      ignorecase: true
-    - type:       regex
-      key:        null
-      value:      '^\{\{\s*[a-z0-9_]+\s*\}\}$'     # {{VALUE}}
-      ignorecase: true
-    - type:       regex
-      key:        null
-      value:      '^\$\{[a-z0-9_]+\}$'             # $VALUE
+      value:      '^.{,5}$'    # anything less than six characters
       ignorecase: true
   - context: [ 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'groovy', 'java' ]
     # require an '=' delimiter, unquoted key, and double-quoted value
@@ -227,3 +261,36 @@ Rakes:
   valgroup: 2
   contextgroup: 0
   ignorecase: false
+- name: sensitive environment variable with default
+  type: ContextPattern
+  description: hard-coded default password supplied as fallback to an environment-variable lookup
+  severity: HIGH
+  contexts:
+  - context: [ 'py' ]
+    pattern: '(os\.getenv\s*\(\s*(["''])([A-Za-z0-9_]*PASS(WORD|WD|PHRASE)?)\2\s*,\s*(["''])([^"'']+)\5\s*\))'
+    contextgroup: 0
+    keygroup:     2
+    valgroup:     5
+    ignorecase: true
+  - context: [ 'js', 'ts', 'jsx', 'tsx' ]
+    # process.env.PASSWORD || 'default'     (also ?? )
+    # process.env["PASSWORD"] || "default"
+    pattern: '((?:process\.env\.|process\.env\[["''])(pass(w|word|wd)?)(?:["'']\])?\s*(?:\|\||\?\?)\s*(["''])([^"'']+)\4)'
+    contextgroup: 0
+    keygroup:     1
+    valgroup:     4
+    ignorecase: true
+  - context: [ 'cs' ]
+    # Environment.GetEnvironmentVariable("PASSWORD") ?? "default"
+    pattern: '(Environment\.GetEnvironmentVariable\s*\(\s*"(PASS(WORD|WD|PHRASE)?)"\s*\)\s*\?\?\s*"([^"]+)")'
+    contextgroup: 0
+    keygroup:     1
+    valgroup:     3
+    ignorecase: true
+  - context: [ 'java' ]
+    # Spring placeholder default: @Value("${password:secret}")
+    pattern: '(@Value\s*\(\s*"\$\{(pass(word|wd|phrase)?)\s*:\s*([^"}\n]+)\}"\s*\))'
+    contextgroup: 0
+    keygroup:     1
+    valgroup:     3
+    ignorecase: true

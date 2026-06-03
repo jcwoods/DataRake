@@ -550,20 +550,111 @@ class RakeFilter(object):
         return
 
     @staticmethod
-    def load(config:dict):
+    def load(config:dict) -> "RakeFilter":
+        '''Build a single inline filter from a config dict.
+
+        Only handles the directly-constructible filter types (regex, literal).
+        Reference types ('named', 'set') require a FilterRegistry to resolve
+        and are rejected here.
+        '''
         t = config.get('type', None)
         if t is None: raise RuntimeError("Filter type not specified.")
 
-        if t.lower() == "regex":
+        tl = t.lower()
+        if tl == "regex":
             return RakeRegexFilter.load(config)
 
-        if t.lower() == "literal":
+        if tl == "literal":
             return RakeLiteralFilter.load(config)
 
+        if tl in ("named", "set"):
+            raise RuntimeError(
+                f"Filter type {t!r} requires a FilterRegistry to resolve "
+                f"(reference {config.get('name')!r})")
+
         raise RuntimeError(f"Invalid filter type: {t}")
-    
+
     def match(self, match:RakeMatch) -> bool:
         raise RuntimeError("Abstract method RakeFilter.match() called")
+
+
+class FilterRegistry(object):
+    '''Per-config registry of NamedFilters and FilterSets.
+
+    A NamedFilter resolves to one RakeFilter; a FilterSet resolves to a list
+    of RakeFilters that gets expanded inline wherever the set is referenced.
+    Sharing a single RakeFilter instance across multiple rakes is safe because
+    filter objects are read-only after construction.
+
+    Each config load builds its own FilterRegistry, so multiple configurations
+    can coexist (e.g. in tests) without cross-contamination.
+    '''
+
+    def __init__(self):
+        self.named_filters:dict = {}    # name -> RakeFilter
+        self.filter_sets:dict = {}      # name -> list[RakeFilter]
+        return
+
+    def register_named(self, name:str, filt:RakeFilter) -> None:
+        if name in self.named_filters:
+            raise RuntimeError(f"Duplicate NamedFilter name: {name!r}")
+        if name in self.filter_sets:
+            raise RuntimeError(
+                f"Name {name!r} is already used by a FilterSet")
+        self.named_filters[name] = filt
+
+    def register_set(self, name:str, filters:list) -> None:
+        if name in self.filter_sets:
+            raise RuntimeError(f"Duplicate FilterSet name: {name!r}")
+        if name in self.named_filters:
+            raise RuntimeError(
+                f"Name {name!r} is already used by a NamedFilter")
+        self.filter_sets[name] = list(filters)
+
+    def load(self, config:dict) -> RakeFilter:
+        '''Resolve a single-filter config.
+
+        Handles `type: named` lookups against the NamedFilter registry, and
+        delegates everything else to RakeFilter.load.  A `type: set` here is
+        an error -- use load_list for filter lists where sets can expand.
+        '''
+        t = config.get('type', '').lower() if isinstance(config, dict) else ''
+        if t == 'named':
+            name = config.get('name')
+            if name is None:
+                raise RuntimeError("NamedFilter reference missing 'name'")
+            if name not in self.named_filters:
+                raise RuntimeError(f"Unknown NamedFilter: {name!r}")
+            return self.named_filters[name]
+        if t == 'set':
+            raise RuntimeError(
+                f"FilterSet {config.get('name')!r} cannot be used where a "
+                f"single filter is required; use it in a filter list instead")
+        return RakeFilter.load(config)
+
+    def load_list(self, configs:list) -> list:
+        '''Flatten a list of filter-config entries into a list of filters.
+
+        Each entry may be:
+          - an inline filter (`type: regex` or `type: literal`)
+          - a NamedFilter reference (`type: named`, `name: ...`)
+          - a FilterSet reference (`type: set`, `name: ...`)
+
+        FilterSet references are expanded inline; order is preserved.
+        '''
+        out = []
+        for c in configs:
+            t = c.get('type', '').lower() if isinstance(c, dict) else ''
+            if t == 'set':
+                name = c.get('name')
+                if name is None:
+                    raise RuntimeError("FilterSet reference missing 'name'")
+                if name not in self.filter_sets:
+                    raise RuntimeError(f"Unknown FilterSet: {name!r}")
+                out.extend(self.filter_sets[name])
+                continue
+            out.append(self.load(c))
+        return out
 
 
 class RakeLiteralFilter(RakeFilter):

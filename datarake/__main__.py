@@ -7,6 +7,8 @@ import yaml
 from typing import TextIO
 
 from .common import DirectoryWalker
+from .common import FilterRegistry
+from .common import RakeFilter
 from .common import RakeMatch
 from .common import RakeSet
 
@@ -263,15 +265,83 @@ def parseCmdLine(argv):
     parser.add_argument("-v", "--verbose", required=False, action="store_true", default=False,
                         help="Enable verbose (diagnostic) output")
 
-    parser.add_argument("-c", "--config", required=False, type=str, default="etc/datarake.yaml",
-                        help="Configuration file")
+    parser.add_argument("-c", "--config", required=False, type=str, default=None,
+                        help="Configuration file (defaults to the bundled datarake.yaml)")
     return parser.parse_args(argv[1:])
 
-def loadConfig(cfile:str="etc/datarake.yaml"):
+
+def _default_config_path() -> str:
+    '''Return the path to the bundled datarake.yaml shipped inside the
+    package, regardless of whether the package is installed or running
+    from a source checkout.
+    '''
+    from importlib.resources import files
+    return str(files('datarake').joinpath('datarake.yaml'))
+
+def _buildFilterRegistry(cfg:dict) -> FilterRegistry:
+    '''Construct a FilterRegistry from the top-level FilterRegistry: section
+    of the YAML config.
+
+    The section is a list whose entries are single-key dicts:
+        - NamedFilter:
+            - name: X
+              type: regex
+              ...
+        - FilterSet:
+            - name: Y
+            - filters: [ ... ]
+
+    NamedFilter items are full filter definitions plus a name; FilterSet items
+    are split across separate list entries for name and filters, which we
+    merge here.
+    '''
+    registry = FilterRegistry()
+
+    for entry in cfg.get('FilterRegistry', []) or []:
+        if not isinstance(entry, dict) or len(entry) != 1:
+            raise RuntimeError(
+                f"FilterRegistry entries must be single-key dicts "
+                f"(NamedFilter or FilterSet); got: {entry!r}")
+
+        kind, items = next(iter(entry.items()))
+
+        if kind == "NamedFilter":
+            for item in items or []:
+                name = item.get('name')
+                if name is None:
+                    raise RuntimeError("NamedFilter entry missing 'name'")
+                flt_cfg = {k: v for k, v in item.items() if k != 'name'}
+                registry.register_named(name, RakeFilter.load(flt_cfg))
+
+        elif kind == "FilterSet":
+            # FilterSet items in this YAML schema are a list where one item
+            # carries 'name' and another carries 'filters'.  Merge them.
+            merged = {}
+            for d in items or []:
+                if isinstance(d, dict):
+                    merged.update(d)
+            name = merged.get('name')
+            if name is None:
+                raise RuntimeError("FilterSet entry missing 'name'")
+            filters = registry.load_list(merged.get('filters', []) or [])
+            registry.register_set(name, filters)
+
+        else:
+            raise RuntimeError(f"Unknown FilterRegistry entry kind: {kind!r}")
+
+    return registry
+
+
+def loadConfig(cfile:str=None):
+    if cfile is None:
+        cfile = _default_config_path()
     with open(cfile, "r") as fd:
         cfg = yaml.safe_load(fd)
 
     verbose = bool(cfg.get('verbose', False))
+
+    # FilterRegistry must be built first so references in rake configs resolve.
+    registry = _buildFilterRegistry(cfg)
 
     rs = RakeSet(verbose=verbose)
 
@@ -282,7 +352,12 @@ def loadConfig(cfile:str="etc/datarake.yaml"):
         else:
             raise RuntimeError(f"ERROR: unsupported Rake type: {r['type']}")
 
-        rake = c.load(r)
+        # Only filter-bearing rakes accept filter_registry; FileMeta has no
+        # filters configured today, so it uses the legacy load() signature.
+        if c is RakeFileMeta:
+            rake = c.load(r)
+        else:
+            rake = c.load(r, filter_registry=registry)
         rs.add(rake)
 
     return rs

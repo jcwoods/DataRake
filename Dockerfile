@@ -3,12 +3,11 @@ FROM cgr.dev/chainguard/python:latest-dev
 USER root
 RUN python3 -m pip install pipenv
 
-RUN mkdir -p /app/datarake /app/etc /src
+RUN mkdir -p /app/datarake /src
 COPY Pipfile /app
 COPY Pipfile.lock /app
 COPY drrun.sh /app
 COPY ./datarake /app/datarake
-COPY ./etc /app/etc
 
 WORKDIR /app
 RUN pipenv install --system

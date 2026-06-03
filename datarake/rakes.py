@@ -6,6 +6,7 @@ import sys
 from .common import Rake
 from .common import RakeMatch
 from .common import RakeFilter
+from .common import FilterRegistry
 
 class RakeFileMeta(Rake):
     '''
@@ -192,9 +193,13 @@ class RakePattern(Rake):
         return True
 
     @staticmethod
-    def load(config):
+    def load(config, filter_registry:FilterRegistry=None):
         '''
-        Create a RakeFileMeta given a Rake configuration from datarake.yaml
+        Create a RakePattern given a Rake configuration from datarake.yaml.
+
+        If filter_registry is supplied, `type: named` and `type: set` entries
+        in the filter list are resolved against it; `type: set` references
+        are expanded inline into the rake's filter list.
         '''
 
         n = config.get('name', "<-NotNamed->")
@@ -214,10 +219,14 @@ class RakePattern(Rake):
 
         filters = config.get('filters', [])
         if not isinstance(filters, list):
-            raise RuntimeError("filters must be a list for Rake {n}")
+            raise RuntimeError(f"filters must be a list for Rake {n}")
 
-        for f in filters:
-            fo = RakeFilter.load(f)
+        if filter_registry is not None:
+            resolved = filter_registry.load_list(filters)
+        else:
+            resolved = [RakeFilter.load(f) for f in filters]
+
+        for fo in resolved:
             o.addFilter(fo)
 
         return o
@@ -264,9 +273,10 @@ class RakeContextPattern(Rake):
         return
 
     @staticmethod
-    def load(config):
+    def load(config, filter_registry:FilterRegistry=None):
         '''
-        Create a RakeFileMeta given a Rake configuration from datarake.yaml
+        Create a RakeContextPattern given a Rake configuration from
+        datarake.yaml.  See RakePattern.load for the filter_registry contract.
         '''
 
         n = config.get('name', "<-None->")
@@ -295,10 +305,14 @@ class RakeContextPattern(Rake):
 
             filters = c.get('filters', [])
             if not isinstance(filters, list):
-                raise RuntimeError("filters must be a list for Rake {n}")
+                raise RuntimeError(f"filters must be a list for Rake {n}")
 
-            for f in filters:
-                fo = RakeFilter.load(f)
+            if filter_registry is not None:
+                resolved = filter_registry.load_list(filters)
+            else:
+                resolved = [RakeFilter.load(f) for f in filters]
+
+            for fo in resolved:
                 o.addFilter(fo)
 
             for ft in ctx:

@@ -1,7 +1,10 @@
+import codecs
 import hashlib
 import os
 import re
 import sys
+
+import chardet
 
 from typing import Optional, Union
 from collections import OrderedDict
@@ -471,6 +474,34 @@ class RakeSet(object):
                          ".pdf", ".tar", ".tgz", ".gz", ".tar.gz",
                          ".jar", ".war", ".ear", ".class", ".css"]
 
+    # Number of bytes sampled from the head of each file for encoding
+    # detection.  chardet is accurate on a small sample and we don't want to
+    # read entire (potentially large) files just to guess encoding.
+    ENCODING_SAMPLE_SIZE = 2048
+
+    @staticmethod
+    def _detect_encoding(fullpath:str) -> Optional[str]:
+        '''
+        Sample the first ENCODING_SAMPLE_SIZE bytes of a file and use chardet
+        to guess its text encoding.  Returns the detected encoding name (eg,
+        'utf-8', 'utf-16', 'ISO-8859-1') or None if the file cannot be read or
+        no encoding could be determined (eg, an empty file).
+
+        Runs on the worker thread (called from scan()), so the sampling read
+        is parallelised along with the full scan.
+        '''
+        try:
+            with open(fullpath, 'rb') as fd:
+                sample = fd.read(RakeSet.ENCODING_SAMPLE_SIZE)
+        except OSError:
+            return None
+
+        if not sample:
+            return None
+
+        result = chardet.detect(sample)
+        return result.get('encoding')
+
     def scan(self, context:dict, blacklist=None):
         '''
         Scan a single file described by 'context' and return a
@@ -519,8 +550,22 @@ class RakeSet(object):
         if len(context_hits) > 0:
             findings.extend(context_hits)
 
+        # Detect the file's text encoding (worker-side) and record it in the
+        # context metadata.  Fall back to UTF-8 when detection is inconclusive
+        # or names a codec Python doesn't recognize; a wrong-but-valid guess
+        # still degrades gracefully via the UnicodeDecodeError handler below.
+        encoding = self._detect_encoding(fullpath) or "utf-8"
         try:
-            fd = open(fullpath, encoding="utf-8")
+            codecs.lookup(encoding)
+        except LookupError:
+            if self.verbose:
+                print(f"* Unknown encoding {encoding!r} for {fullpath}; using utf-8",
+                      file=sys.stderr)
+            encoding = "utf-8"
+        context["encoding"] = encoding
+
+        try:
+            fd = open(fullpath, encoding=encoding)
         except FileNotFoundError:
             if self.verbose:
                 print(f"* Unable to open file: {fullpath}", file=sys.stderr)

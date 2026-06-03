@@ -9,6 +9,7 @@ pipdeptree = "*"
 
 [packages]
 pyyaml = "*"
+chardet = "*"
 
 [requires]
 python_version = "3.12"

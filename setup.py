@@ -55,6 +55,7 @@ setup(
 
     install_requires=[
         'pyyaml',
+        'chardet',
     ],
 
     keywords=['source', 'code', 'reporting', 'scanner', 'security', 'credentials', 'secrets' ],

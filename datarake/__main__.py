@@ -277,13 +277,18 @@ def parseCmdLine(argv):
     return parser.parse_args(argv[1:])
 
 
-def _default_config_path() -> str:
-    '''Return the path to the bundled datarake.yaml shipped inside the
-    package, regardless of whether the package is installed or running
-    from a source checkout.
+def _default_config_text() -> str:
+    '''Return the contents of the bundled datarake.yaml shipped inside the
+    package.
+
+    We read through the importlib.resources Traversable API rather than
+    converting to a filesystem path and opening it.  This works whether the
+    package is installed as a directory, a zipped egg/wheel, or run from a
+    source checkout -- a plain str(path) + open() breaks for zipped installs
+    because the resource has no real filesystem path.
     '''
     from importlib.resources import files
-    return str(files('datarake').joinpath('datarake.yaml'))
+    return files('datarake').joinpath('datarake.yaml').read_text(encoding='utf-8')
 
 def _buildFilterRegistry(cfg:dict) -> FilterRegistry:
     '''Construct a FilterRegistry from the top-level FilterRegistry: section
@@ -341,9 +346,11 @@ def _buildFilterRegistry(cfg:dict) -> FilterRegistry:
 
 def loadConfig(cfile:str=None):
     if cfile is None:
-        cfile = _default_config_path()
-    with open(cfile, "r") as fd:
-        cfg = yaml.safe_load(fd)
+        # Use the config bundled inside the package (zip-safe).
+        cfg = yaml.safe_load(_default_config_text())
+    else:
+        with open(cfile, "r") as fd:
+            cfg = yaml.safe_load(fd)
 
     verbose = bool(cfg.get('verbose', False))
 

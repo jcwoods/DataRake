@@ -69,6 +69,10 @@ setup(
     },
     include_package_data=True,
 
+    # The package reads bundled data (datarake.yaml) and must not be installed
+    # as a zipped egg, where that data has no real filesystem layout.
+    zip_safe=False,
+
     entry_points={
         'console_scripts': [
             'datarake=datarake.__main__:main',

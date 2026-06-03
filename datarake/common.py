@@ -465,12 +465,30 @@ class RakeSet(object):
 
         return matches
 
-    def match(self, context:dict, blacklist=None):
-        if blacklist is None:
-            blacklist = [".exe", ".dll", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
+    # Default set of file extensions which are never read (binary/archive).
+    DEFAULT_BLACKLIST = [".exe", ".dll", ".jpg", ".jpeg", ".png", ".gif", ".bmp",
                          ".tiff", ".zip", ".doc", ".docx", ".xls", ".xlsx",
                          ".pdf", ".tar", ".tgz", ".gz", ".tar.gz",
-                         ".jar", ".war", ".ear", ".class", ".css" ]
+                         ".jar", ".war", ".ear", ".class", ".css"]
+
+    def scan(self, context:dict, blacklist=None):
+        '''
+        Scan a single file described by 'context' and return a
+        (findings, stats) tuple.
+
+        This method does NOT mutate any shared RakeSet state and does NOT
+        write output, so it is safe to invoke concurrently from worker
+        threads.  Each context is produced fresh by DirectoryWalker and is
+        owned exclusively by the thread scanning it (we mutate only
+        context['lineno']), so no locking is required.
+
+        stats is a dict of per-file counters: files, lines, hits, bytes.
+        '''
+        if blacklist is None:
+            blacklist = RakeSet.DEFAULT_BLACKLIST
+
+        stats = {"files": 0, "lines": 0, "hits": 0, "bytes": 0}
+        findings = list()
 
         if self.verbose:
             print(f"* New context: {str(context)}", file=sys.stderr)
@@ -479,24 +497,20 @@ class RakeSet(object):
         filename = context.get("filename", None)
         context['lineno'] = None
 
-        findings = list()
-
         if path is None or filename is None:
-            # log an error here
             if self.verbose:
                 print("* Context is invalid?", file=sys.stderr)
-            return findings
+            return findings, stats
 
         fullpath = context.get("fullpath", None)
         if fullpath is None:
             fullpath = os.path.join(path, filename)
 
         for ext in blacklist:
-            # log message here
             if ext == filename[-len(ext):].lower():
                 if self.verbose:
                     print(f"* File matches blacklisted extension: {ext}", file=sys.stderr)
-                return findings
+                return findings, stats
 
         if self.verbose:
             print("* Applying context Rakes", file=sys.stderr)
@@ -510,7 +524,7 @@ class RakeSet(object):
         except FileNotFoundError:
             if self.verbose:
                 print(f"* Unable to open file: {fullpath}", file=sys.stderr)
-            return findings
+            return findings, stats
 
         if self.verbose:
             print(f"* Applying content Rakes", file=sys.stderr)
@@ -529,17 +543,32 @@ class RakeSet(object):
         except UnicodeDecodeError:
             # simply can't process this file due to encoding -- skip it.
             lineno = 0
+        finally:
+            fd.close()
 
-        fd.close()
-
-        self.total_files += 1
-        self.total_lines += lineno
-        self.total_hits += len(findings)
+        stats["files"] = 1
+        stats["lines"] = lineno
+        stats["hits"] = len(findings)
 
         try:
-            self.total_size += os.stat(fullpath).st_size
+            stats["bytes"] = os.stat(fullpath).st_size
         except (FileNotFoundError, PermissionError):
             pass
+
+        return findings, stats
+
+    def match(self, context:dict, blacklist=None):
+        '''
+        Single-threaded convenience wrapper around scan().  Accumulates the
+        per-file stats into the RakeSet's running totals and returns just the
+        findings, preserving the original contract for non-threaded callers.
+        '''
+        findings, stats = self.scan(context, blacklist=blacklist)
+
+        self.total_files += stats["files"]
+        self.total_lines += stats["lines"]
+        self.total_hits += stats["hits"]
+        self.total_size += stats["bytes"]
 
         return findings
 

@@ -1,9 +1,12 @@
 import argparse
 import csv
 import json
+import os
 import sys
 import yaml
 
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from typing import TextIO
 
 from .common import DirectoryWalker
@@ -265,6 +268,10 @@ def parseCmdLine(argv):
     parser.add_argument("-v", "--verbose", required=False, action="store_true", default=False,
                         help="Enable verbose (diagnostic) output")
 
+    parser.add_argument("-j", "--jobs", required=False, type=int, default=None,
+                        help="Number of worker threads used to scan files "
+                             "(default: CPU count)")
+
     parser.add_argument("-c", "--config", required=False, type=str, default=None,
                         help="Configuration file (defaults to the bundled datarake.yaml)")
     return parser.parse_args(argv[1:])
@@ -378,6 +385,8 @@ def main(argv=sys.argv):
         fd = open(cfg.output[0], 'w', encoding='utf-8')
         close_fd = True
 
+    jobs = cfg.jobs if (cfg.jobs and cfg.jobs > 0) else (os.cpu_count() or 1)
+
     try:
         out_format = cfg.format[0]
 
@@ -390,25 +399,45 @@ def main(argv=sys.argv):
             writer = DataRakeJSONWriter(fd=fd, quiet=cfg.quiet, summary=cfg.summary)
 
         writer.initOutput()
-
         writer.initSecrets()
-        for d in cfg.PATH:
-            dw = DirectoryWalker(d, verbose=cfg.verbose)
-            for context in dw:
-                findings = rs.match(context)
+
+        # Running totals are owned solely by the main thread.
+        totals = {"files": 0, "lines": 0, "hits": 0, "bytes": 0}
+
+        # The main thread's only jobs are (1) hand files to workers and
+        # (2) write the results workers return.  Worker threads scan files
+        # via RakeSet.scan() but NEVER write output.  We bound the number of
+        # in-flight scans so a huge tree doesn't materialize all futures and
+        # their findings at once.
+        max_in_flight = max(jobs * 4, jobs)
+
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            pending = deque()
+
+            def drain_one():
+                # Block on the oldest outstanding scan (preserving directory
+                # walk order) and emit its results -- from the main thread.
+                findings, stats = pending.popleft().result()
                 for f in findings:
                     writer.writeSecret(f)
+                for k in totals:
+                    totals[k] += stats[k]
 
+            for d in cfg.PATH:
+                for context in DirectoryWalker(d, verbose=cfg.verbose):
+                    pending.append(pool.submit(rs.scan, context))
+                    if len(pending) >= max_in_flight:
+                        drain_one()
+
+            # Drain any remaining scans before the pool is shut down.
+            while pending:
+                drain_one()
+
+        # ThreadPoolExecutor.__exit__ has now shut down the worker threads.
         writer.endSecrets()
 
-        sfiles = rs.total_files
-        slines = rs.total_lines
-        shits = rs.total_hits      # yes, this I think this is funny ;)
-        ssiz = rs.total_size
-        summary = { "files": sfiles, "lines": slines, "hits": shits, "bytes": ssiz }
-
         writer.initSummary()
-        writer.writeSummary(summary)
+        writer.writeSummary(totals)
         writer.endSummary()
 
         writer.endOutput()

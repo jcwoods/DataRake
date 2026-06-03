@@ -84,6 +84,7 @@ class RakeFileMeta(Rake):
         f = config.get('file', None)
         e = config.get('extension', None)
         a = bool(config.get('all', True))
+        i = bool(config.get('ignorecase', False))
 
         if t is None or d is None or s is None:
             raise RuntimeError(f"missing required configuration element(s) for rake: {t}")
@@ -91,7 +92,7 @@ class RakeFileMeta(Rake):
         if p is None and f is None and e is None:
             raise RuntimeError(f"at least one of path, file, and extension must be set for rake: {t}")
 
-        o = RakeFileMeta(t, d, s, path=p, file=f, ext=e, all=a)
+        o = RakeFileMeta(t, d, s, path=p, file=f, ext=e, all=a, ignorecase=i)
         return o
 
 
@@ -181,14 +182,15 @@ class RakePattern(Rake):
 
     def filter(self, m:RakeMatch) -> bool:
         '''
-        Check filters against given match.  A single positive match is enough
-        to return False (indicating result should be filtered).
+        Check filters against given match.  Filters are a denylist: if any
+        filter matches the result (eg, the value looks like a template
+        variable or a known false positive), the result should be discarded.
 
-        Returns False if result should be filtered.
+        Returns False if the result should be filtered (dropped).
         '''
 
         for f in self.filters:
-            if not f.match(m): return False
+            if f.match(m): return False
 
         return True
 

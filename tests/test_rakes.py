@@ -137,10 +137,6 @@ class TestRakeFileMeta(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             RakeFileMeta.load({"name": "n", "description": "d", "severity": "LOW"})
 
-    @unittest.expectedFailure  # BUG: RakeFileMeta.load never reads `ignorecase` from
-                               # config and never forwards it to the constructor, so
-                               # filemeta rakes are always case-sensitive even when
-                               # YAML configures `ignorecase: true`.
     def test_load_builds_rake(self):
         r = RakeFileMeta.load({
             "name": "n", "description": "d", "severity": "HIGH",
@@ -197,13 +193,6 @@ class TestRakePattern(unittest.TestCase):
         hits = r.match(make_context(), "token=xyz")
         self.assertEqual(len(hits), 1)
 
-    @unittest.expectedFailure  # BUG: RakePattern.filter has inverted semantics.
-                               # The docstring says "a single positive match is enough
-                               # to return False (filter out)", but the code reads
-                               # `if not f.match(m): return False`, which filters out
-                               # matches that *fail* the filter rather than ones that
-                               # match it. End result: every YAML filter currently
-                               # rejects real values and keeps placeholders.
     def test_filter_rejects_match(self):
         r = RakePattern(r"(token=(\w+))", "tok", "d", "LOW",
                         ctx_group=0, val_group=1)
@@ -212,7 +201,6 @@ class TestRakePattern(unittest.TestCase):
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0].value, "keep")
 
-    @unittest.expectedFailure  # Same filter-inversion bug as test_filter_rejects_match.
     def test_regex_filter(self):
         r = RakePattern(r"(token=(\S+))", "tok", "d", "LOW",
                         ctx_group=0, val_group=1)
@@ -251,7 +239,6 @@ class TestRakePattern(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             RakePattern.load({"name": "n", "contextgroup": 0})
 
-    @unittest.expectedFailure  # Same filter-inversion bug as test_filter_rejects_match.
     def test_load_with_filters(self):
         r = RakePattern.load({
             "name": "n", "pattern": r"(token=(\w+))",
@@ -590,9 +577,6 @@ class TestYAMLFileMetaRakes(_YAMLRakesMixin, unittest.TestCase):
 
 class TestYAMLTokenRake(_YAMLRakesMixin, unittest.TestCase):
 
-    @unittest.expectedFailure  # BUG: filter-inversion rejects real values; all four
-                               # filters look for placeholder shapes which real tokens
-                               # don't match, so the buggy filter rejects everything.
     def test_null_context_positive(self):
         r = self._rake("token")
         self.assertEqual(
@@ -620,9 +604,6 @@ class TestYAMLTokenRake(_YAMLRakesMixin, unittest.TestCase):
             with self.subTest(negative=case):
                 self.assertEqual(self._content_hits(r, case, ext="c"), [])
 
-    @unittest.expectedFailure  # BUG: the js/ts/py pattern's closing `(\3)` backref
-                               # targets the `(en)` inner group instead of the quote
-                               # group; the pattern never matches anything.
     def test_js_ts_py_context_positive(self):
         r = self._rake("token")
         self.assertEqual(
@@ -632,9 +613,6 @@ class TestYAMLTokenRake(_YAMLRakesMixin, unittest.TestCase):
 
 class TestYAMLPasswordRake(_YAMLRakesMixin, unittest.TestCase):
 
-    @unittest.expectedFailure  # BUG: null-context pattern's closing backref (`(\5)`
-                               # refers to "ord", not the value quote); the regex
-                               # never matches a real password assignment.
     def test_null_context_positive(self):
         r = self._rake("password")
         self.assertEqual(
@@ -685,9 +663,6 @@ class TestYAMLPasswordRake(_YAMLRakesMixin, unittest.TestCase):
             with self.subTest(negative=case):
                 self.assertEqual(self._content_hits(r, case, ext="yaml"), [])
 
-    @unittest.expectedFailure  # BUG: closing backref `(\5)` to unmatched optional
-                               # opening quote fails in Python `re`; pattern only
-                               # matches values that ARE quoted.
     def test_yaml_context_unquoted(self):
         r = self._rake("password")
         self.assertEqual(
@@ -796,9 +771,6 @@ class TestYAMLSimplePatternRakes(_YAMLRakesMixin, unittest.TestCase):
             with self.subTest(negative=line):
                 self.assertEqual(self._content_hits(r, line), [])
 
-    @unittest.expectedFailure  # BUG: filter-inversion + literal "ENCRYPTED" filter:
-                               # val_group is unset, so match.value is None, the filter
-                               # returns False, and the inverted check drops every hit.
     def test_private_key_positive(self):
         r = self._rake("private key")
         self.assertEqual(
@@ -815,9 +787,6 @@ class TestYAMLSimplePatternRakes(_YAMLRakesMixin, unittest.TestCase):
             with self.subTest(negative=line):
                 self.assertEqual(self._content_hits(r, line), [])
 
-    @unittest.expectedFailure  # BUG: filter-inversion rejects real tokens; the three
-                               # placeholder-detecting filters all fail to match real
-                               # values, and the inverted check then drops them.
     def test_auth_token_positive(self):
         r = self._rake("auth token")
         for line in [

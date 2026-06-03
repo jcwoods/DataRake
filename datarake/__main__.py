@@ -417,7 +417,15 @@ def main(argv=sys.argv):
             def drain_one():
                 # Block on the oldest outstanding scan (preserving directory
                 # walk order) and emit its results -- from the main thread.
-                findings, stats = pending.popleft().result()
+                # A failure scanning one file is logged and skipped rather
+                # than aborting the entire run.
+                ctx, future = pending.popleft()
+                try:
+                    findings, stats = future.result()
+                except Exception as e:
+                    print(f"* ERROR scanning {ctx.get('fullpath', ctx)}: {e}",
+                          file=sys.stderr)
+                    return
                 for f in findings:
                     writer.writeSecret(f)
                 for k in totals:
@@ -425,7 +433,7 @@ def main(argv=sys.argv):
 
             for d in cfg.PATH:
                 for context in DirectoryWalker(d, verbose=cfg.verbose):
-                    pending.append(pool.submit(rs.scan, context))
+                    pending.append((context, pool.submit(rs.scan, context)))
                     if len(pending) >= max_in_flight:
                         drain_one()
 

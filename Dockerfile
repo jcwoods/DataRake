@@ -1,4 +1,6 @@
-FROM cgr.dev/chainguard/python:latest-dev
+FROM debian:12.11
+RUN apt update && apt install -y pypy3 && mkdir -p /app && mkdir -p /scan
+ADD datarake.py /app/datarake.py
 
 USER root
 RUN python3 -m pip install pipenv

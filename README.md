@@ -4,7 +4,7 @@ A regex-based forensics tool used to extract secrets (passwords, tokens, keys, e
 
 DataRake can be installed for local use or run from an OCI (Docker) container.  Each method is documented below.
 
-As many as two different values may be returned for each issue identified:  a context and/or a value.  The context is useful when the results are being reviewed by a human, and provides a small amount of information about the context in which the secret was found.  This can be useful when manually reviewing results.
+As many as two different outputs may be returned for each issue identified:  a context and/or a value.  The context is useful when the results are being reviewed by a human, and provides a small amount of information about the context in which the secret was found.  This may be useful when manually reviewing results.
 
 The value is the specific data which is /believed/ to be the secret.  This is useful with automated processes which might remove/replace the sensitive data.
 
@@ -18,23 +18,24 @@ Running datarake finds the offensive value, reporting both a context and a value
 
     $ datarake --format=json
     [
-    {
-        "context": {
-            "length": 21,
-            "offset": 0,
-            "value": "password=Sup3rSekrit!"
-        },
+      {
         "description": "possible plaintext password",
         "line": 2,
         "path": "src/project.properties",
         "severity": "HIGH",
         "type": "password",
+        "context": {
+            "length": 21,
+            "offset": 0,
+            "value": "password=Sup3rSekrit!"
+        },
         "value": {
             "length": 12,
             "offset": 9,
             "value": "Sup3rSekrit!"
         }
-    }]
+      }
+    ]
 
 Now assume that we want to mask the sensitive data using an automated process, such as ‘sed’.  If we use the context, it grabs too much data (we lose the “password=”):
 
@@ -52,48 +53,64 @@ At the same time, the context is output to help in the evaluation of results.  I
 
 ## Installing Local
 
-    $ sudo python3 setup.py install
+    $ pip install .
+
+This installs the `datarake` command and bundles the default configuration
+(`datarake.yaml`) inside the package, so it is found automatically without
+specifying `-c`.
+
+### Configuration
+
+What datarake scans for is driven entirely by a YAML configuration file.  A
+default configuration ships with the package and is used automatically.  To
+use your own, pass `-c/--config`:
+
+    $ datarake -c /path/to/my-datarake.yaml /path/to/code
+
+The configuration defines the set of *Rakes* (patterns and file-metadata
+matchers) plus a *FilterRegistry* of reusable named filters and filter sets
+used to suppress false positives.  See the bundled `datarake/datarake.yaml`
+for a complete, commented example.
 
 ### Command line args
 
 Once installed, to run from command line:
 
-    usage: datarake [-h] [-n] [-e] [-d DOMAIN] [-j] [-dp] [-dt] [-dh] [-dk] [-du] [-df] [-dc] [-f {csv,json,sarif}] [-o OUTPUT] [-s] [-dx] [-dv] [-u] [-q] [-v] [PATH [PATH ...]]
-    
+    usage: datarake [-h] [-f {csv,json,sarif}] [-o OUTPUT] [-s] [-dx] [-dv]
+                    [-u] [-q] [-v] [-j JOBS] [-c CONFIG]
+                    [PATH ...]
+
     positional arguments:
       PATH                  Path to be (recursively) searched.
-    
-    optional arguments:
+
+    options:
       -h, --help            show this help message and exit
-      -n, --hostname        scan for hostnames, optionally rooted in DOMAIN.
-      -e, --email           scan for email addresses, optionally rooted in DOMAIN.
-      -d DOMAIN, --domain DOMAIN
-                            for hostname and emails, require that they are rooted in DOMAIN. If no DOMAIN is specified and either hostname or email matching is enabled, any pattern matching a host or email will be reported
-      -j, --jwt             scan for Javascript Web Tokens (JWT)
-      -dp, --disable-passwords
-                            disable scan for passwords
-      -dt, --disable-tokens
-                            disable scan for tokens
-      -dh, --disable-headers
-                            disable scan for common auth headers
-      -dk, --disable-private-keys
-                            disable scan for private key files.
-      -du, --disable-urls   disable scan for credentials in URLs
-      -df, --disable-dangerous-files
-                            disable detection of dangerous files
-      -dc, --disable-dangerous-commands
-                            disable detection of dangerous commands
-      -f {csv,json,insights,sarif}, --format {csv,json,insights,sarif}
-                            Output format (defaults to csv)
+      -f {csv,json,sarif}, --format {csv,json,sarif}
+                            Output format
       -o OUTPUT, --output OUTPUT
                             Output location (defaults to stdout)
-      -s, --secure          Enable secure output mode (no secrets displayed)
+      -s, --secure          Enable secure output mode (no secrets displayed,
+                            secure context)
       -dx, --disable-context
                             Disable output of context match
-      -dv, --disable-value  Disable output of secret match
+      -dv, --disable-value  Disable output of secret matched
       -u, --summary         enable output of summary statistics
       -q, --quiet           Do not output scan results, summary information only.
       -v, --verbose         Enable verbose (diagnostic) output
+      -j JOBS, --jobs JOBS  Number of worker threads used to scan files
+                            (default: CPU count)
+      -c CONFIG, --config CONFIG
+                            Configuration file (defaults to the bundled
+                            datarake.yaml)
+
+Files are scanned concurrently by a pool of worker threads (`-j/--jobs`).
+All output is serialized through the main thread, so results are emitted in
+a deterministic order regardless of the number of workers.
+
+## Installing Container
+
+    $ docker build -t datarake:latest .
+    $ docker run -it -v /path/to/code:/src datarake.latest
 
 # Design Notes
 

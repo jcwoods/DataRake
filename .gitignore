@@ -1,0 +1,7 @@
+Pipfile.lock
+**/__pycache__
+.vscode/**
+review.md
+build/
+dist/
+*.egg-info/

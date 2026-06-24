@@ -1,4 +1,4 @@
-FROM debian:12.11
+FROM debian:12.13
 RUN apt update && apt install -y pypy3 && mkdir -p /app && mkdir -p /scan
 ADD datarake.py /app/datarake.py
 

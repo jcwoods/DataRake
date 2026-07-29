@@ -20,6 +20,7 @@ from datarake.rakes import (
     RakeEmail,
     RakeBasicAuth,
     RakeJWTAuth,
+    SentinelRake,
 )
 
 
@@ -250,6 +251,169 @@ class TestRakePattern(unittest.TestCase):
         })
         hits = r.match(make_context(), "token=ignoreme token=keep")
         self.assertEqual([h.value for h in hits], ["keep"])
+
+
+# ---------------------------------------------------------------------------
+# SentinelRake
+# ---------------------------------------------------------------------------
+
+class TestSentinelRake(unittest.TestCase):
+
+    # A pattern with capture groups so contextgroup/valgroup have something to
+    # reference (group 1 = whole "secret=<val>", group 2 = the value).
+    PATTERN = r"(secret=(\w{6,}))"
+    SENTINEL = r"\bSENTINEL\b"
+
+    def _rake(self, context_lines=3, ctx_group=0, val_group=1, **kw):
+        return SentinelRake(self.SENTINEL, self.PATTERN, "aws", "desc", "HIGH",
+                            context_lines=context_lines,
+                            ctx_group=ctx_group, val_group=val_group, **kw)
+
+    def _feed(self, rake, lines):
+        """Feed lines through the rake in order, returning (value, line) hits."""
+        ctx = make_context()
+        hits = []
+        for i, line in enumerate(lines, 1):
+            ctx["lineno"] = i
+            hits.extend(rake.match(ctx, line))
+        return [(h.value, h.line) for h in hits]
+
+    def test_part_is_content(self):
+        self.assertEqual(self._rake().part, "content")
+
+    def test_no_match_without_sentinel(self):
+        r = self._rake()
+        self.assertEqual(self._feed(r, ["secret=abcdef", "nothing", "here"]), [])
+
+    def test_sentinel_before_pattern(self):
+        r = self._rake(context_lines=3)
+        hits = self._feed(r, ["SENTINEL", "x", "secret=abcdef"])
+        self.assertEqual(hits, [("abcdef", 3)])
+
+    def test_sentinel_after_pattern(self):
+        r = self._rake(context_lines=3)
+        hits = self._feed(r, ["secret=abcdef", "x", "SENTINEL"])
+        # Reported against the line the pattern was found on, not the sentinel.
+        self.assertEqual(hits, [("abcdef", 1)])
+
+    def test_sentinel_same_line(self):
+        r = self._rake()
+        self.assertEqual(self._feed(r, ["SENTINEL secret=abcdef"]), [("abcdef", 1)])
+
+    def test_sentinel_just_within_window(self):
+        # distance == context_lines is still within range
+        r = self._rake(context_lines=3)
+        hits = self._feed(r, ["SENTINEL", "x", "x", "secret=abcdef"])
+        self.assertEqual(hits, [("abcdef", 4)])
+
+    def test_sentinel_just_outside_window(self):
+        # distance == context_lines + 1 is out of range
+        r = self._rake(context_lines=3)
+        self.assertEqual(self._feed(r, ["SENTINEL", "x", "x", "x", "secret=abcdef"]), [])
+
+    def test_reports_pattern_value_not_sentinel(self):
+        r = self._rake()
+        hits = self._feed(r, ["SENTINEL", "secret=topsecret"])
+        self.assertEqual(hits, [("topsecret", 2)])
+
+    def test_no_duplicate_when_sentinel_on_both_sides(self):
+        r = self._rake(context_lines=5)
+        hits = self._feed(r, ["SENTINEL", "secret=abcdef", "SENTINEL"])
+        self.assertEqual(hits, [("abcdef", 2)])
+
+    def test_multiple_patterns_each_confirmed(self):
+        r = self._rake(context_lines=5)
+        hits = self._feed(r, ["secret=aaaaaa", "secret=bbbbbb", "SENTINEL"])
+        self.assertEqual(sorted(hits), [("aaaaaa", 1), ("bbbbbb", 2)])
+
+    def test_state_is_per_context_not_per_rake(self):
+        # Two files scanned with the same rake must not leak window state:
+        # a sentinel in file A cannot confirm a pattern in file B.
+        r = self._rake(context_lines=10)
+        ctx_a = make_context(filename="a.txt")
+        ctx_a["lineno"] = 1
+        self.assertEqual(r.match(ctx_a, "SENTINEL"), [])
+
+        ctx_b = make_context(filename="b.txt")
+        ctx_b["lineno"] = 1
+        # Fresh context => fresh window => no sentinel seen => no hit.
+        self.assertEqual(r.match(ctx_b, "secret=abcdef"), [])
+
+    def test_filter_rejects_match(self):
+        r = self._rake()
+        r.addFilter(RakeLiteralFilter(val="abcdef"))
+        hits = self._feed(r, ["SENTINEL", "secret=abcdef", "secret=keepme"])
+        self.assertEqual(hits, [("keepme", 3)])
+
+    def test_value_and_context_groups(self):
+        r = self._rake(ctx_group=0, val_group=1)
+        ctx = make_context(lineno=1)
+        hits = r.match(ctx, "SENTINEL secret=abcdef")
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0].value, "abcdef")
+        self.assertEqual(hits[0].context, "secret=abcdef")
+
+    def test_negative_context_lines_raises(self):
+        with self.assertRaises(RuntimeError):
+            self._rake(context_lines=-1)
+
+    def test_missing_groups_raises(self):
+        with self.assertRaises(RuntimeError):
+            SentinelRake(self.SENTINEL, self.PATTERN, "aws", "d", "HIGH",
+                         context_lines=3, ctx_group=None, val_group=1)
+        with self.assertRaises(RuntimeError):
+            SentinelRake(self.SENTINEL, self.PATTERN, "aws", "d", "HIGH",
+                         context_lines=3, ctx_group=0, val_group=None)
+
+    # --- load() -------------------------------------------------------------
+
+    def _base_cfg(self, **over):
+        cfg = {
+            "name": "aws", "description": "d", "severity": "HIGH",
+            "sentinel": self.SENTINEL, "pattern": self.PATTERN,
+            "contextLines": 3, "contextgroup": 0, "valgroup": 1,
+        }
+        cfg.update(over)
+        return cfg
+
+    def test_load_builds_rake(self):
+        r = SentinelRake.load(self._base_cfg())
+        self.assertEqual(r.ptype, "aws")
+        self.assertEqual(r.context_lines, 3)
+        self.assertEqual(self._feed(r, ["SENTINEL", "secret=abcdef"]),
+                         [("abcdef", 2)])
+
+    def test_load_accepts_context_alias(self):
+        cfg = self._base_cfg()
+        del cfg["contextLines"]
+        cfg["context"] = 5
+        r = SentinelRake.load(cfg)
+        self.assertEqual(r.context_lines, 5)
+
+    def test_load_missing_sentinel_raises(self):
+        cfg = self._base_cfg()
+        del cfg["sentinel"]
+        with self.assertRaises(RuntimeError):
+            SentinelRake.load(cfg)
+
+    def test_load_missing_context_lines_raises(self):
+        cfg = self._base_cfg()
+        del cfg["contextLines"]
+        with self.assertRaises(RuntimeError):
+            SentinelRake.load(cfg)
+
+    def test_load_missing_groups_raises(self):
+        cfg = self._base_cfg()
+        del cfg["valgroup"]
+        with self.assertRaises(RuntimeError):
+            SentinelRake.load(cfg)
+
+    def test_load_with_filters(self):
+        r = SentinelRake.load(self._base_cfg(filters=[
+            {"type": "literal", "value": "ignoreme"},
+        ]))
+        hits = self._feed(r, ["SENTINEL", "secret=ignoreme", "secret=keepme"])
+        self.assertEqual(hits, [("keepme", 3)])
 
 
 # ---------------------------------------------------------------------------
@@ -819,6 +983,51 @@ class TestYAMLSimplePatternRakes(_YAMLRakesMixin, unittest.TestCase):
         for line in ["ssh user@host", "echo hello", "passwd reset"]:
             with self.subTest(negative=line):
                 self.assertEqual(self._content_hits(r, line), [])
+
+
+class TestYAMLSentinelRake(_YAMLRakesMixin, unittest.TestCase):
+
+    SENTINEL = "AKIAIOSFODNN7EXAMPLE"                          # access key id
+    SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"        # 40-char secret
+
+    def _feed(self, rake, lines, ext="txt"):
+        ctx = make_context(filename=f"x.{ext}", filetype=ext)
+        hits = []
+        for i, line in enumerate(lines, 1):
+            ctx["lineno"] = i
+            hits.extend(rake.match(ctx, line))
+        return [(h.value, h.line) for h in hits]
+
+    def test_secret_with_nearby_access_key_id(self):
+        r = self._rake("AWS Secret Access Key")
+        hits = self._feed(r, [
+            f"aws_access_key_id = {self.SENTINEL}",
+            "x", "x",
+            f'aws_secret_access_key = "{self.SECRET}"',
+        ])
+        self.assertEqual(hits, [(self.SECRET, 4)])
+
+    def test_secret_alone_is_not_reported(self):
+        # Without the access key ID sentinel, a bare 40-char string is too
+        # generic to flag.
+        r = self._rake("AWS Secret Access Key")
+        self.assertEqual(
+            self._feed(r, [f'aws_secret_access_key = "{self.SECRET}"']), [])
+
+    def test_sentinel_after_secret(self):
+        r = self._rake("AWS Secret Access Key")
+        hits = self._feed(r, [
+            f'aws_secret_access_key = "{self.SECRET}"',
+            f"aws_access_key_id = {self.SENTINEL}",
+        ])
+        self.assertEqual(hits, [(self.SECRET, 1)])
+
+    def test_too_far_apart_not_reported(self):
+        r = self._rake("AWS Secret Access Key")
+        lines = ([f"aws_access_key_id = {self.SENTINEL}"]
+                 + ["filler"] * 16
+                 + [f'aws_secret_access_key = "{self.SECRET}"'])
+        self.assertEqual(self._feed(r, lines), [])
 
 
 # ---------------------------------------------------------------------------

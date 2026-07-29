@@ -294,3 +294,13 @@ Rakes:
     keygroup:     1
     valgroup:     3
     ignorecase: true
+- name: AWS Secret Access Key
+  type: SentinelRake
+  description: probable AWS secret key
+  sentinel: \b(A3T[A-Z0-9]|AKIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA|ASIA)[A-Z0-9]{16}\b
+  pattern:  '((?<![A-Za-z0-9/+=])(["'']?)([A-Za-z0-9/+=]{40})\2(?![A-Za-z0-9/+=]))'
+  contextLines:  16
+  severity: HIGH
+  valgroup: 2
+  contextgroup: 0
+  ignorecase: false

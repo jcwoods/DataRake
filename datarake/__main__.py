@@ -18,6 +18,7 @@ from .common import RakeSet
 from .rakes import RakeContextPattern
 from .rakes import RakeFileMeta
 from .rakes import RakePattern
+from .rakes import SentinelRake
 
 class DataRakeWriter(object):
     '''
@@ -363,6 +364,7 @@ def loadConfig(cfile:str=None):
         if   r['type'] == "ContextPattern": c = RakeContextPattern
         elif r['type'] == "FileMeta":       c = RakeFileMeta
         elif r['type'] == "SimplePattern":  c = RakePattern
+        elif r['type'] == "SentinelRake":   c = SentinelRake
         else:
             raise RuntimeError(f"ERROR: unsupported Rake type: {r['type']}")
 

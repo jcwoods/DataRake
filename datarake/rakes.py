@@ -3,6 +3,8 @@ import json
 import re
 import sys
 
+from collections import deque
+
 from .common import Rake
 from .common import RakeMatch
 from .common import RakeFilter
@@ -232,6 +234,203 @@ class RakePattern(Rake):
             o.addFilter(fo)
 
         return o
+
+class SentinelRake(Rake):
+    '''
+    A content rake that reports matches of `pattern` only when a `sentinel`
+    pattern is observed nearby -- within `context_lines` lines, occurring
+    either before or after the pattern.
+
+    Motivating example: an AWS secret access key is a 40-character base64-ish
+    string, far too generic to flag on its own.  But when one appears within a
+    handful of lines of an AWS access key ID (the sentinel), the pair is a
+    strong signal of leaked credentials.  The reported value is the `pattern`
+    match (the secret); the sentinel must be present but is NOT itself part of
+    the reported match.
+
+    Detection is bidirectional without buffering past end-of-file: a rolling
+    window of the last `context_lines` lines is kept, and on every line we
+    check both directions --
+      * a sentinel already in the window confirms a pattern on the new line, and
+      * a sentinel on the new line confirms any not-yet-reported pattern earlier
+        in the window.
+    Because both rules only ever look *backwards*, every confirmable match is
+    emitted as soon as the second of the (pattern, sentinel) pair is seen, so
+    no flush hook is required.
+
+    The rolling window is stored in the per-file `context` dict rather than on
+    the rake instance, so a single shared rake object stays stateless and is
+    safe to use concurrently across worker threads (see RakeSet.scan).
+    '''
+
+    def __init__(self, sentinel:str, pattern:str, ptype:str, pdesc:str,
+                 severity:str, context_lines:int,
+                 ctx_group:int, val_group:int,
+                 ignorecase:bool=False):
+
+        Rake.__init__(self, ptype, pdesc, severity, part='content')
+
+        if context_lines < 0:
+            raise RuntimeError(f"contextLines must be >= 0 for rake '{ptype}'")
+
+        if ctx_group is None or val_group is None:
+            raise RuntimeError(
+                f"both contextgroup and valgroup are required for rake '{ptype}'")
+
+        flags = re.IGNORECASE if ignorecase else 0
+        try:
+            self.sentinel = re.compile(sentinel, flags=flags)
+            self.pattern = re.compile(pattern, flags=flags)
+        except re.error:
+            print(f"ERROR: failed to parse pattern for rake '{ptype}'", file=sys.stderr)
+            sys.exit(1)
+
+        self.context_lines = context_lines
+        self.ctx_group = ctx_group  # group (of pattern) reported as context
+        self.val_group = val_group  # group (of pattern) reported as the value
+        self.filters = list()
+        return
+
+    def addFilter(self, f:RakeFilter):
+        self.filters.append(f)
+        return
+
+    def filter(self, m:RakeMatch) -> bool:
+        '''Denylist filter chain, identical in spirit to RakePattern.filter.'''
+        for f in self.filters:
+            if f.match(m): return False
+        return True
+
+    def _window(self, context:dict) -> deque:
+        '''
+        Return this rake's rolling line window for the current file, creating
+        it on first use.  State lives in the (per-file, per-thread) context
+        dict and is keyed by the rake instance so multiple SentinelRakes
+        scanning the same file don't collide.
+        '''
+        states = context.setdefault('_sentinel_state', {})
+        win = states.get(self)
+        if win is None:
+            win = deque()
+            states[self] = win
+        return win
+
+    def match(self, context:dict, text:str):
+        window = self._window(context)
+        lineno = context['lineno']
+
+        has_sentinel = self.sentinel.search(text) is not None
+        pmatches = list(self.pattern.finditer(text))
+
+        # relPath is only needed if this line carries pattern matches that
+        # might eventually be reported -- compute it lazily to avoid the work
+        # on the (common) lines that carry neither pattern nor sentinel.
+        relpath = self.relPath(context['basepath'], context['fullpath']) \
+            if pmatches else None
+
+        record = {
+            'lineno': lineno,
+            'relpath': relpath,
+            'has_sentinel': has_sentinel,
+            # each entry: [regex match, reported?]
+            'pmatches': [[m, False] for m in pmatches],
+        }
+        window.append(record)
+
+        # Drop records that can no longer be within context_lines of the
+        # current (or any future) line in either direction.
+        while window and (lineno - window[0]['lineno']) > self.context_lines:
+            window.popleft()
+
+        results = []
+
+        # Direction 1: sentinel before/on the pattern line.  Confirm pattern
+        # matches on the current line against any sentinel already in window.
+        if pmatches and any(rec['has_sentinel'] for rec in window):
+            for entry in record['pmatches']:
+                if entry[1]: continue
+                entry[1] = True
+                results.append(self._build_match(context, record, entry[0]))
+
+        # Direction 2: pattern before the sentinel line.  A sentinel on the
+        # current line confirms not-yet-reported pattern matches earlier in
+        # the window.
+        if has_sentinel:
+            for rec in window:
+                for entry in rec['pmatches']:
+                    if entry[1]: continue
+                    entry[1] = True
+                    results.append(self._build_match(context, rec, entry[0]))
+
+        return list(filter(self.filter, results))
+
+    def _build_match(self, context:dict, record:dict, m:re.Match) -> RakeMatch:
+        rm = RakeMatch(self, file=record['relpath'], line=record['lineno'])
+
+        # Group numbers in the config are 0-based into a findall-style tuple
+        # (which omits regex group 0); +1 maps to the finditer group number,
+        # the same convention as RakePattern.  Both groups index into the
+        # `pattern` match -- the sentinel is never part of the reported match.
+        vg = self.val_group + 1
+        cg = self.ctx_group + 1
+
+        if m.group(vg) is not None:
+            start, end = m.span(vg)
+            rm.set_value(m.group(vg), start, end - start)
+
+        if m.group(cg) is not None:
+            start, end = m.span(cg)
+            rm.set_context(m.group(cg), start, end - start)
+
+        rm.match_groups = m.groups(default='')
+        rm.full_context = context
+        return rm
+
+    @staticmethod
+    def load(config, filter_registry:FilterRegistry=None):
+        '''
+        Create a SentinelRake given a Rake configuration from datarake.yaml.
+        See RakePattern.load for the filter_registry contract.
+        '''
+
+        n = config.get('name', "<-NotNamed->")
+        d = config.get('description', "<-NoDesc->")
+        s = config.get('severity', "LOW")
+        sentinel = config.get('sentinel', None)
+        pattern = config.get('pattern', None)
+        # `contextLines` is the documented key; accept `context` as an alias.
+        cl = config.get('contextLines', config.get('context', None))
+        cg = config.get('contextgroup', None)
+        vg = config.get('valgroup', None)
+        i = config.get('ignorecase', False)
+
+        if sentinel is None or pattern is None:
+            raise RuntimeError(f"sentinel and pattern must both be given for rake {n}")
+
+        if cl is None:
+            raise RuntimeError(f"contextLines must be given for rake {n}")
+
+        if cg is None or vg is None:
+            raise RuntimeError(f"contextgroup and valgroup must both be given for rake {n}")
+
+        o = SentinelRake(sentinel=sentinel, pattern=pattern, ptype=n, pdesc=d,
+                         severity=s, context_lines=int(cl),
+                         ctx_group=cg, val_group=vg, ignorecase=i)
+
+        filters = config.get('filters', [])
+        if not isinstance(filters, list):
+            raise RuntimeError(f"filters must be a list for Rake {n}")
+
+        if filter_registry is not None:
+            resolved = filter_registry.load_list(filters)
+        else:
+            resolved = [RakeFilter.load(f) for f in filters]
+
+        for fo in resolved:
+            o.addFilter(fo)
+
+        return o
+
 
 class RakeContextPattern(Rake):
     '''

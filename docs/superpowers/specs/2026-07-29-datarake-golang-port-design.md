@@ -341,7 +341,15 @@ counterpart and are wired up:
 |---|---|---|
 | `DirectoryWalker.ExcludeSubdirs` | `DirectoryWalker.__init__` → `['.svn', '.git']` | Honored; that list is the default when the key is absent |
 | `DirectoryWalker.ExcludeFileExtensions` | `RakeSet.DEFAULT_BLACKLIST` | Honored; `DEFAULT_BLACKLIST` is the default when absent |
-| `Global.CommonTLDs` | `RakeHostname.TLDs` | Honored; `TLDs` is the default when absent |
+| `Global.CommonTLDs` | `RakeHostname.TLDs` | Honored by `NewHostname`/`NewEmail`; `TLDs` is the default when absent |
+
+**`CommonTLDs` does not affect CLI scans.** Only `ContextPattern`, `FileMeta`,
+and `SimplePattern` are constructible from YAML (`__main__.py:363-365`).
+`RakeHostname` and `RakeEmail` — the only consumers of the TLD list — are
+library-only API, exported from `__init__.py` and exercised by the test suite but
+never instantiated by `loadConfig`. Honoring `CommonTLDs` therefore changes
+behavior for library consumers and tests only. Wiring it into the scan path would
+require a new YAML rake type, which is out of scope.
 
 Two consequences of honoring the shipped config, both intended:
 
@@ -357,13 +365,16 @@ and matched case-insensitively against the end of the filename, preserving the
 existing suffix semantics at `common.py:540` — which is what makes multi-part
 entries like `.tar.gz` work.
 
-**`Global.IgnorePasswords`, `Global.IgnoreUsers`, and `Global.IgnoreHosts` stay
-inert.** Unlike the three above, these have *no* hardcoded counterpart anywhere in
+**`Global.IgnorePasswords`, `Global.IgnoreUsers`, `Global.IgnoreHosts`, and the
+`token` rake's `skipcontexts:` key stay inert.** Unlike the three above, these
+have *no* hardcoded counterpart anywhere in
 the Python — no code path consumes them or anything equivalent. (`Rake.common_usernames`
-and `Rake.common_passwords` are different lists and are themselves unused.)
-Wiring them up would mean inventing suppression semantics that have never
-existed, which is a feature, not a port. They are parsed into the config struct
-and documented as reserved.
+and `Rake.common_passwords` are different lists and are themselves unused.
+`skipcontexts` appears only on the `token` rake and is read by no code —
+`RakeContextPattern.load` reads `name`, `description`, `severity`, and `contexts`
+only.) Wiring any of them up would mean inventing suppression semantics that have
+never existed, which is a feature, not a port. They are parsed into the config
+struct and documented as reserved.
 
 ## Implementation notes
 
@@ -505,8 +516,9 @@ Consolidated list of every intentional behavior difference:
 | 8 | Regex match timeout can skip a pathological line | Backtracking mitigation |
 | 9 | `relPath` on `fullpath == basepath` returns empty rather than raising | Panic avoidance |
 | 10 | `external_id`, `common_usernames`, `common_passwords` absent | Dead code |
+| 11 | Directory entries traversed in sorted order | `os.walk` uses unsorted `scandir` order; Go's `filepath.WalkDir` sorts. Go's order is deterministic across runs and machines, which is what makes golden-file tests viable — Python's never was. |
 
-Items 1–5 are deliberate and requested. Items 6–10 are consequences, each
+Items 1–5 are deliberate and requested. Items 6–11 are consequences, each
 documented at its call site in the Go source.
 
 ## Risks

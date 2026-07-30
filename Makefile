@@ -7,6 +7,14 @@ all:
 test:
 	python -m unittest discover -s tests -t .
 
+.PHONY: golang
+golang:
+	$(MAKE) -C golang all
+
+.PHONY: golang-test
+golang-test:
+	$(MAKE) -C golang test
+
 .PHONY: clean
 clean:
 	rm -rf build dist *.egg-info

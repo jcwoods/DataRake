@@ -1,0 +1,296 @@
+verbose: false
+Global:
+  # passwords which, if found, will be suppressed
+  IgnorePasswords: [ 'password' ]
+
+  # user names which, if found related to a secret, will be suppressed
+  IgnoreUsers:     [ 'example', 'user' ]
+
+  # host names names which, if found related to a secret, will be suppressed.
+  # These are hostnames, not domains!  Any domain might be used with these (eg,
+  # "example" might be "example.com" or "example.org")
+  IgnoreHosts:     [ 'example', 'domain' ]
+
+  # common top level domains.  A host name will not pass a "is host?" check
+  # unless it ends with one of these.
+  CommonTLDs:      [ 'au', 'br', 'cn', 'com', 'de', 'edu', 'gov', 'in', 'info',
+                     'ir', 'mil', 'net', 'nl', 'org', 'ru', 'tk', 'top', 'uk' ]
+
+# Configure the DirectoryWalker.  This is the module which iterates through
+# a directory, returning a list of files to be scanned. 
+DirectoryWalker:
+
+  # ExcludeSubdirs: a list of directories which, if found, will be skipped.
+  ExcludeSubdirs: [ '.git', '__pycache__' ]
+
+  # Even though we only search text files (non-text data will abort scanning
+  # on a file), these extensions will never be read.  Matches on file
+  # extensions are case INSENSITIVE.
+  ExcludeFileExtensions: [ 'doc', 'xls', 'docx', 'xlsx', 'ppt', 'pptx', 'pdf',
+                           'zip', 'gz', 'tgz', 'tar', 'z', 'bz2', 'xz',
+                           'jar', 'war', 'ear', 'class',
+                           'png', 'gif', 'bmp', 'tiff',
+                           'so', 'a',
+                           'exe', 'dll' ]
+FilterRegistry:
+- NamedFilter:
+    - name:       ShellVariables
+      type:       regex
+      key:        null
+      value:      '^\$[a-z0-9_]+$'                 # $VAR
+      ignorecase: true
+- FilterSet:
+  - name: VariablesNotLiteral
+  - filters:
+    - type:       regex
+      key:        null
+      value:      '^\$[a-z0-9_]+$'                 # $VAR
+      ignorecase: true
+    - type:       regex
+      key:        null
+      value:      '^\$\{\s*[a-z_]+\s*\}$'          # ${VAR}
+      ignorecase: true
+    - type:       regex
+      key:        null
+      value:      '^\{\{\s*[a-z0-9_]+\s*\}\}$'     # {{VAR}}
+      ignorecase: true
+- FilterSet:
+  - name: TestValues
+  - filters:
+    - type:       regex
+      key:        null
+      value:      '^([A-Z])\1+$'                 # XXX, XXXXXX (repetition of same uppercase character)
+      ignorecase: false
+    - type:       regex
+      key:        null
+      value:      '^pass(w(ord|d)?)?$'           # password, passwd, passw
+      ignorecase: true
+    - type:       regex
+      key:        null
+      value:      '^.{1,5}$'                     # length < 6 (password complexity)
+      ignorecase: true
+
+
+Rakes:
+- name: ssh identity file
+  type: FileMeta
+  description: file possibly containing an ssh private key
+  severity: HIGH
+  path: null
+  file: "^id_(rsa1?|dsa|ecdsa|ed25519)$"
+  extension: null
+  all: false
+  ignorecase: false
+
+- name: netrc file
+  type: FileMeta
+  description: file likely containing network credentials
+  severity: HIGH
+  path: null
+  file: "\\.?netrc$"
+  extension: "netrc"
+  all: false
+  ignorecase: true
+
+- name: pki file
+  type: FileMeta
+  description: file related to PKI/X509 server certificates or keys
+  severity: MEDIUM
+  path: null
+  file: null
+  extension: "^(pem|pfx|p12|p7b|key)$"
+  all: false
+  ignorecase: true
+
+- name: java keystore file
+  type: FileMeta
+  description: Java keystore
+  severity: MEDIUM
+  path: null
+  file: "^keystore$"
+  extension: "^(jks|keystore|ks)$"
+  all: false
+  ignorecase: true
+
+- name: htpasswd file
+  type: FileMeta
+  description: may contain weakly encrypted credentials used to access resources on an Apache web server
+  severity: LOW
+  path: null
+  file: "^\\.?htpasswd$$"
+  extension: null
+  all: false
+  ignorecase: true
+
+- name: token
+  type: ContextPattern
+  description: possible token, authentication key, or similar
+  severity: MEDIUM
+  skipcontexts: [ "htm", "html" ]
+  contexts: 
+  - context: null
+    pattern: '((["'']?)([a-z0-9_]{0,32}tok(en)?)(\2)[ \t]*[=:][ \t]*([''"]?)([\x21\x23-\x26\x28-\x7e]{6,})(\6))'
+    keygroup:     2
+    valgroup:     6
+    contextgroup: 0
+    ignorecase: true
+    filters:
+    - type:       regex
+      key:        null
+      value:      '^\$\{[a-z_]+\}[\"\''`]?[.,;]?$' # ${TOKEN}
+      ignorecase: true
+    - type:       regex
+      key:        null
+      value:      '^\{\{\s*[a-z0-9_]+\s*\}\}$'     # {{TOKEN}}
+      ignorecase: true
+    - type:       regex
+      key:        null
+      value:      '^\$\{[a-z0-9_]+\}$'             # $TOKEN
+      ignorecase: true
+    - type:       regex
+      key:        '("?)[Pp]ublicKeyToken(\1)'      # common in csproj/resx files
+      value:      null
+      ignorecase: false
+  - context: [ 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'groovy', 'java' ]
+    pattern: '(([a-z0-9_]{0,32}tok(en)?)[ \t]*=[ \t]*"([\x21\x23-\x26\x28-\x7e]{6,})")'
+    keygroup: 1
+    valgroup: 3
+    contextgroup: 0
+    ignorecase: true
+  - context: [ 'js', 'ts', 'py' ]
+    pattern: '(([a-z0-9_]{0,32}tok(en))?[ \t]*=[ \t]*([''\"])([\x21\x23-\x26\x28-\x7e]{6,})(\4))'
+    keygroup: 1
+    valgroup: 4
+    contextgroup: 0
+    ignorecase: true
+- name: password
+  type: ContextPattern
+  description: possible plaintext password
+  severity: HIGH
+  contexts: 
+  - context: null             # default (any unmatched) context
+    pattern: '((["'']?)([a-z0-9_]{0,32}pass(w(ord)))(\2)[ \t]*[=:][ \t]*([''"]?)([\x21\x23-\x26\x28-\x7e]{6,})(?(7)\7|))'
+    keygroup:     2
+    valgroup:     7
+    contextgroup: 0
+    ignorecase: true
+    filters:
+    - type:       set
+      name:       VariablesNotLiteral
+    - type:       set 
+      name:       TestValues
+    - type:       regex
+      key:        null
+      value:      '^.{0,5}$'    # anything less than six characters
+      ignorecase: true
+  - context: [ 'c', 'h', 'cc', 'cpp', 'hpp', 'cs', 'groovy', 'java' ]
+    # require an '=' delimiter, unquoted key, and double-quoted value
+    pattern: '((\S{0,32}pass(w(ord)?)?)\s*=\s*"([\x21\x23-\x26\x28-\x7e]{6,})")'
+    keygroup: 1
+    valgroup: 4
+    contextgroup: 0
+    ignorecase: true
+  - context: [ 'js', 'ts', 'py' ]
+    # require an '=' delimiter, unquoted key, and single- or double-quoted (' or ") value
+    pattern: '((\S{0,32}pass(w(ord)?)?)\s*=\s*(["''])([\x21\x23-\x26\x28-\x7e]{6,})(\5))'
+    keygroup: 1
+    valgroup: 5
+    contextgroup: 0
+    ignorecase: true
+  - context: [ 'yaml', 'yml' ]
+    # require a ':' delimiter, unquoted key, and optionally-quoted (' or ") value
+    pattern: '((\S{0,32}pass(w(ord)?)?)\s*:\s*(["''])?([\x21\x23-\x26\x28-\x7e]{6,})(?(5)\5|))'
+    keygroup: 1
+    valgroup: 5
+    contextgroup: 0
+    ignorecase: true
+  - context: [ 'json' ]
+    # require a ':' delimiter, double quoted key, and double-quoted value
+    pattern: '((\S{0,32}"pass(w(ord)?)?)"\s*:\s*"([\x21\x23-\x26\x28-\x7e]{6,})")'
+    keygroup: 1
+    valgroup: 4
+    contextgroup: 0
+    ignorecase: true
+- name: auth url
+  type: SimplePattern
+  pattern: '\b([a-z]{2,8}://(([a-z0-9%+/=\-]+):([a-z0-9%+/=\-]+))@([A-Z0-9_-]{1,63}(\.[A-Z0-9_-]{1,63}){1,6})(:\d{1,5})?(/(\S*)?)?)\b'
+  description: URL containing credentials (basic auth)
+  severity: HIGH
+  contextgroup: 0
+  valgroup: 3
+  ignorecase: true
+
+# ignore common passwords
+# ignore common domains (example, host, hostname, domain, domainname + TLD)
+
+- name: private key
+  type: SimplePattern
+  # Note:  ignore "ENCRYPTED" private key :)
+  pattern: '^(-----BEGIN ([A-Z0-9]{2,} )?PRIVATE KEY-----$)'
+  description: private key
+  severity: HIGH
+  contextgroup: 0
+  ignorecase: false
+  filters:
+  - type: literal
+    value: ENCRYPTED
+    ignorecase: false
+- name: auth token
+  type: SimplePattern
+  pattern: '((Basic|Bearer)\s+([^''"]\S{7,}))'
+  description: possible value used with Authorization header
+  severity: HIGH
+  valgroup: 2
+  contextgroup: 0
+  ignorecase: false
+  filters:
+  - type:  regex
+    value: '\$\{[a-z_]+\}["\''`]?[.,;]?$'
+    ignorecase: true
+  - type:  regex
+    value: '\{\{\s*[a-z_]+\s*\}\}["\''`]?[.,;]?$'
+    ignorecase: true
+  - type:  regex
+    value: '\$[a-z_]+\$?$'
+    ignorecase: true
+- name: sshpass
+  type: SimplePattern
+  pattern: '\b(sshpass .*-p\s?([\''"]?)(\S+)(\2))'
+  description: use of hard-coded password with sshpass
+  severity: HIGH
+  valgroup: 2
+  contextgroup: 0
+  ignorecase: false
+- name: sensitive environment variable with default
+  type: ContextPattern
+  description: hard-coded default password supplied as fallback to an environment-variable lookup
+  severity: HIGH
+  contexts:
+  - context: [ 'py' ]
+    pattern: '(os\.getenv\s*\(\s*(["''])([A-Za-z0-9_]*PASS(WORD|WD|PHRASE)?)\2\s*,\s*(["''])([^"'']+)\5\s*\))'
+    contextgroup: 0
+    keygroup:     2
+    valgroup:     5
+    ignorecase: true
+  - context: [ 'js', 'ts', 'jsx', 'tsx' ]
+    # process.env.PASSWORD || 'default'     (also ?? )
+    # process.env["PASSWORD"] || "default"
+    pattern: '((?:process\.env\.|process\.env\[["''])(pass(w|word|wd)?)(?:["'']\])?\s*(?:\|\||\?\?)\s*(["''])([^"'']+)\4)'
+    contextgroup: 0
+    keygroup:     1
+    valgroup:     4
+    ignorecase: true
+  - context: [ 'cs' ]
+    # Environment.GetEnvironmentVariable("PASSWORD") ?? "default"
+    pattern: '(Environment\.GetEnvironmentVariable\s*\(\s*"(PASS(WORD|WD|PHRASE)?)"\s*\)\s*\?\?\s*"([^"]+)")'
+    contextgroup: 0
+    keygroup:     1
+    valgroup:     3
+    ignorecase: true
+  - context: [ 'java' ]
+    # Spring placeholder default: @Value("${password:secret}")
+    pattern: '(@Value\s*\(\s*"\$\{(pass(word|wd|phrase)?)\s*:\s*([^"}\n]+)\}"\s*\))'
+    contextgroup: 0
+    keygroup:     1
+    valgroup:     3
+    ignorecase: true

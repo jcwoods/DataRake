@@ -1,6 +1,19 @@
 package rake
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/jcwoods/datarake/golang/walker"
+)
+
+func newWalkerCtx(base, dir, name, ext string, hasExt bool) *walker.Context {
+	return &walker.Context{
+		BasePath: base, Path: dir, Filename: name,
+		FullPath: dir + "/" + name, FileType: ext, HasFileType: hasExt,
+	}
+}
+
+type walkerCtx = walker.Context
 
 func TestNewRakeRejectsInvalidPart(t *testing.T) {
 	if _, err := NewRake("X", "t", "d", "LOW", "bogus"); err == nil {

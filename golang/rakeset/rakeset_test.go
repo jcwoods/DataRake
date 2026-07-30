@@ -291,18 +291,31 @@ func TestScanUndecodableFileReportsZeroLines(t *testing.T) {
 
 // A single-byte charset maps every byte, so such a file decodes cleanly in
 // Python too and must be scanned normally rather than treated as undecodable.
+//
+// The fixture is deliberately several lines of unambiguous Latin-1 prose. A
+// short run of arbitrary high bytes will not do: chardet has no confident
+// answer for one, and DetectBest then returns a different charset from run to
+// run (EUC-JP, EUC-KR, GB-18030 and Shift_JIS were all observed for the same
+// seven bytes). Those multi-byte decoders disagree about whether the input is
+// decodable at all, so a test built on such a fixture passes or fails at
+// random. This body detects as ISO-8859-1 on every run.
 func TestScanHighBytesDecodeViaSingleByteCharset(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "latin.txt")
-	if err := os.WriteFile(p, []byte{0x41, 0x42, 0xff, 0xfe, 0xff, 0xfe, 0x43}, 0o644); err != nil {
+	body := bytes.Repeat([]byte("Le caf\xe9 est pr\xeat, na\xefve r\xe9sum\xe9 sur la terrasse.\n"), 12)
+	if err := os.WriteFile(p, body, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	rs := New(false, []string{})
-	_, stats, err := rs.Scan(ctxFor(dir, p))
+	ctx := ctxFor(dir, p)
+	_, stats, err := rs.Scan(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stats.Lines != 1 {
+	if ctx.Encoding != "ISO-8859-1" {
+		t.Errorf("expected a stable ISO-8859-1 detection, got %q", ctx.Encoding)
+	}
+	if stats.Lines != 12 {
 		t.Errorf("a single-byte-charset file must scan normally, got %d lines", stats.Lines)
 	}
 }

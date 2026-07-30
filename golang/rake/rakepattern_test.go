@@ -129,7 +129,8 @@ func TestPatternIgnorecase(t *testing.T) {
 	}
 }
 
-// Python's m.groups(default='') yields "" for groups that did not participate.
+// Python's m.groups with an empty-string default yields "" for groups that did
+// not participate.
 func TestMatchGroupsPreservesEmptyForOptionalGroups(t *testing.T) {
 	p := mustPattern(t, `((a)(b)?)`, ip(0), nil, nil, false)
 	got, _ := p.Match(testCtx(1), "a\n")

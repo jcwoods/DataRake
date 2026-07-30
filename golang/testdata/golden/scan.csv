@@ -1,0 +1,13 @@
+file,line,label,severity,description,value_offset,value_length,value,context_offset,context_length,context
+app.properties,2,password,HIGH,possible plaintext password,9,12,Sup3rSekrit!,0,21,password=Sup3rSekrit!
+id_rsa,,ssh identity file,HIGH,file possibly containing an ssh private key,,,,,,
+id_rsa,1,private key,HIGH,private key,,,,0,31,-----BEGIN RSA PRIVATE KEY-----
+sub/deploy.sh,2,token,MEDIUM,"possible token, authentication key, or similar",55,14,xyzzy.12345678,49,20,token=xyzzy.12345678
+sub/deploy.sh,2,auth url,HIGH,URL containing credentials (basic auth),18,11,superSekr3t,5,43,https://jeff:superSekr3t@someremotehost.com
+sub/deploy.sh,3,sshpass,HIGH,use of hard-coded password with sshpass,10,11,superSekr3t,0,21,sshpass -psuperSekr3t
+sub/settings.yaml,2,password,HIGH,possible plaintext password,13,11,yamlSekrit1,2,23,"password: ""yamlSekrit1"""
+utf8.properties,1,password,HIGH,possible plaintext password,17,12,Sup3rSekrit1,8,21,password=Sup3rSekrit1
+files: 6
+lines: 12
+bytes: 318
+hits: 8

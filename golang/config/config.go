@@ -160,19 +160,15 @@ func addRake(rs *rakeset.RakeSet, r map[string]any, reg *filter.FilterRegistry, 
 
 // buildFilterRegistry constructs the registry from the FilterRegistry section.
 //
-// The section is a list of single-key mappings:
+// The section is a YAML list of single-key mappings, each keyed by either
+// "NamedFilter" or "FilterSet", whose value is itself a list of items.
 //
-//	- NamedFilter:
-//	    - name: X
-//	      type: regex
-//	      ...
-//	- FilterSet:
-//	  - name: Y
-//	  - filters: [ ... ]
+// A NamedFilter item is a complete filter definition plus a "name" key: the
+// name is stripped off and everything else is handed to filter.Load.
 //
-// NamedFilter items are complete filter definitions plus a name. FilterSet
-// items split the name and the filter list across separate entries, which are
-// merged here.
+// A FilterSet is split across separate list entries by the shipped schema, one
+// carrying "name" and another carrying "filters"; those entries are merged here
+// before the filter list is resolved.
 func buildFilterRegistry(entries []map[string][]map[string]any, timeout time.Duration) (*filter.FilterRegistry, error) {
 	reg := filter.NewFilterRegistry()
 

@@ -558,6 +558,18 @@ func TestSetKeyLengthDefaultsToRuneLength(t *testing.T) {
 		t.Errorf("length must be in runes (5), got %v", got)
 	}
 }
+
+func TestPlainOutputExposesValueAndContext(t *testing.T) {
+	m := New(fakeRake{"t", "d", "LOW"}, "f", intp(1))
+	m.SetValue("hunter2", 0, -1)
+	m.SetContext("pw=hunter2", 0, -1)
+	if v := m.Value(PlainOutput); v == nil || *v != "hunter2" {
+		t.Errorf("PlainOutput must expose the real value, got %v", v)
+	}
+	if v := m.Context(PlainOutput); v == nil || *v != "pw=hunter2" {
+		t.Errorf("PlainOutput must expose the real context, got %v", v)
+	}
+}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -667,6 +679,13 @@ func NewOutputConfig(secure, disableContext, disableValue bool) *OutputConfig {
 	}
 	return o
 }
+
+// PlainOutput is a non-secure, nothing-disabled configuration used when a
+// filter or a rake's own Filter needs to inspect a match's real value.
+// Filtering runs before output is configured, and a filter must see the actual
+// secret to judge it. Safe to share: OutputConfig is immutable after
+// construction.
+var PlainOutput = NewOutputConfig(false, false, false)
 
 func (o *OutputConfig) Enabled(f Field) bool { return o.enabled[f] }
 func (o *OutputConfig) Secure() bool         { return o.secure }
@@ -1211,9 +1230,9 @@ func (f *LiteralFilter) String() string {
 // Match returns true when every configured side compares equal. Unlike
 // RegexFilter, an unset key or value yields false (common.py:759,769).
 func (f *LiteralFilter) Match(m *match.RakeMatch) bool {
-	// A nil OutputConfig is not usable here; filters run before output is
-	// configured, so read the raw value via a non-secure view.
-	oc := plainOutput()
+	// Filters run before output is configured, so read the raw value through
+	// the shared non-secure view.
+	oc := match.PlainOutput
 
 	if f.val != nil {
 		v := m.Value(oc)
@@ -1254,24 +1273,11 @@ package filter
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/dlclark/regexp2"
 	"github.com/jcwoods/datarake/golang/match"
 )
-
-// plainOutput is a non-secure, nothing-disabled view used when filters need to
-// read a match's raw value. Filtering happens before output is configured, and
-// a filter must see the real secret to decide whether to suppress it.
-var plainOutput = func() func() *match.OutputConfig {
-	var once sync.Once
-	var oc *match.OutputConfig
-	return func() *match.OutputConfig {
-		once.Do(func() { oc = match.NewOutputConfig(false, false, false) })
-		return oc
-	}
-}()
 
 // RegexFilter applies anchored patterns to the key and/or value.
 type RegexFilter struct {
@@ -1330,7 +1336,7 @@ func (f *RegexFilter) String() string {
 // tested against the literal text "None". That changes which findings survive,
 // so it is reproduced rather than corrected.
 func (f *RegexFilter) Match(m *match.RakeMatch) bool {
-	oc := plainOutput()
+	oc := match.PlainOutput
 
 	pyStr := func(p *string) string {
 		if p == nil {
@@ -3553,6 +3559,7 @@ affects tests and library callers but not CLI scans.
 package rake
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -3628,10 +3635,7 @@ func TestHostnameDescriptionMentionsDomain(t *testing.T) {
 }
 
 func TestIsValidHostname(t *testing.T) {
-	long := ""
-	for i := 0; i < 64; i++ {
-		long += "a"
-	}
+	long := strings.Repeat("a", 64)
 	cases := []struct {
 		fqdn     string
 		minparts int
@@ -3820,7 +3824,7 @@ func NewHostname(domain *string, tlds []string, timeout time.Duration) (*Hostnam
 // Filter drops structurally invalid hostnames, then chains to the base
 // denylist, reproducing Python's super().filter(m).
 func (h *Hostname) Filter(m *match.RakeMatch) bool {
-	v := m.Value(plainOutputConfig())
+	v := m.Value(match.PlainOutput)
 	if v == nil {
 		return false
 	}
@@ -3829,23 +3833,6 @@ func (h *Hostname) Filter(m *match.RakeMatch) bool {
 	}
 	return h.Pattern.Filter(m)
 }
-```
-
-Add this helper to `golang/rake/rake.go`:
-
-```go
-// plainOutputConfig is a non-secure view used when a rake's own Filter needs
-// to inspect the matched text. Filtering runs before output is configured, and
-// a filter must see the real value to judge it.
-var plainOutputConfig = func() func() *match.OutputConfig {
-	var oc *match.OutputConfig
-	return func() *match.OutputConfig {
-		if oc == nil {
-			oc = match.NewOutputConfig(false, false, false)
-		}
-		return oc
-	}
-}()
 ```
 
 - [ ] **Step 4: Write `rakeemail.go`**
@@ -3902,7 +3889,7 @@ func NewEmail(domain *string, tlds []string, timeout time.Duration) (*Email, err
 // Filter requires exactly one '@' and a valid host part. Unlike Hostname, the
 // host needs only two labels, so "user@example.com" is accepted.
 func (e *Email) Filter(m *match.RakeMatch) bool {
-	v := m.Value(plainOutputConfig())
+	v := m.Value(match.PlainOutput)
 	if v == nil {
 		return false
 	}
@@ -3947,7 +3934,7 @@ overrides it for library callers."
 - Test: `golang/rake/rakebasicauth_test.go`, `golang/rake/rakejwtauth_test.go`
 
 **Interfaces:**
-- Consumes: `Pattern`, `NewPattern`, `SetSelf`, `plainOutputConfig` (Tasks 7, 10).
+- Consumes: `Pattern`, `NewPattern`, `SetSelf` (Task 7); `match.PlainOutput` (Task 2).
 - Produces:
   - `func NewBasicAuth(minlen int, timeout time.Duration) (*BasicAuth, error)`
   - `func NewJWTAuth(timeout time.Duration) (*JWTAuth, error)`
@@ -3962,6 +3949,8 @@ import (
 	"encoding/base64"
 	"testing"
 	"time"
+
+	"github.com/jcwoods/datarake/golang/match"
 )
 
 func TestBasicAuthMatchesValidToken(t *testing.T) {
@@ -4020,7 +4009,7 @@ func TestBasicAuthGroupsCtxAndValue(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatal("expected 1 match")
 	}
-	oc := plainOutputConfig()
+	oc := match.PlainOutput
 	if v := got[0].Context(oc); v == nil || *v != "Basic "+tok {
 		t.Errorf("context must be the whole token: got %v", v)
 	}
@@ -4316,12 +4305,10 @@ func ctxFor(base, full string) *walker.Context {
 	dir, name := filepath.Split(full)
 	dir = filepath.Clean(dir)
 	ext, has := "", false
-	if i := len(name) - 1; i >= 0 {
-		for j := len(name) - 1; j >= 0; j-- {
-			if name[j] == '.' {
-				ext, has = name[j+1:], true
-				break
-			}
+	for j := len(name) - 1; j >= 0; j-- {
+		if name[j] == '.' {
+			ext, has = name[j+1:], true
+			break
 		}
 	}
 	return &walker.Context{
@@ -4725,25 +4712,24 @@ func (rs *RakeSet) Add(r any) error {
 	if rs.verbose {
 		fmt.Fprintf(os.Stderr, "* Adding new Rake: %v\n", r)
 	}
+	// ContentRake and MetaRake have disjoint method sets (Match/Filter versus
+	// MatchContext), so this switch is unambiguous.
 	switch t := r.(type) {
 	case rake.MetaRake:
 		if t.Part() == rake.PartFileMeta {
 			rs.metaRakes = append(rs.metaRakes, t)
 			return nil
 		}
+		return fmt.Errorf("rake %s declares part %q but implements MetaRake", t.Name(), t.Part())
 	case rake.ContentRake:
 		if t.Part() == rake.PartContent {
 			rs.contentRakes = append(rs.contentRakes, t)
 			return nil
 		}
+		return fmt.Errorf("rake %s declares part %q but implements ContentRake", t.Name(), t.Part())
+	default:
+		return fmt.Errorf("unknown rake type: %T", r)
 	}
-	// A ContentRake also satisfies MetaRake's method set in some shapes, so
-	// re-check the other direction before giving up.
-	if cr, ok := r.(rake.ContentRake); ok && cr.Part() == rake.PartContent {
-		rs.contentRakes = append(rs.contentRakes, cr)
-		return nil
-	}
-	return fmt.Errorf("unknown rake type: %T", r)
 }
 
 func (rs *RakeSet) ContentCount() int { return len(rs.contentRakes) }
@@ -6055,9 +6041,13 @@ func realConfig(t *testing.T) *config.Config {
 	return c
 }
 
-func ctx(name, ext string, line int) *walker.Context {
+// ctx builds a scan context. line defaults to 1 when omitted.
+func ctx(name, ext string, line ...int) *walker.Context {
+	n := 1
+	if len(line) > 0 {
+		n = line[0]
+	}
 	has := ext != ""
-	n := line
 	return &walker.Context{
 		BasePath: "/src", Path: "/src", Filename: name,
 		FullPath: "/src/" + name, FileType: ext, HasFileType: has,
@@ -6264,10 +6254,6 @@ func TestYAMLFileMetaNegatives(t *testing.T) {
 	}
 }
 ```
-
-Note the `ctx` helper takes three arguments in the content tests and two in the
-last test; give it a variadic line parameter:
-`func ctx(name, ext string, line ...int) *walker.Context`, defaulting to line 1.
 
 - [ ] **Step 3: Run tests to verify they fail**
 
@@ -7006,8 +6992,8 @@ Expected: tests PASS; the binary builds; `--help` lists every flag and no `sarif
 
 ```bash
 cd golang
+mkdir -p /tmp/dr-smoke
 printf 'username=jeffw\npassword=Sup3rSekrit!\n' > /tmp/dr-smoke/project.properties
-mkdir -p /tmp/dr-smoke && printf 'username=jeffw\npassword=Sup3rSekrit!\n' > /tmp/dr-smoke/project.properties
 ./bin/datarake -f json -u /tmp/dr-smoke
 ```
 Expected: one `password` finding whose `context.value` is
@@ -7391,80 +7377,18 @@ and `rake.MetaRake` (6) are satisfied by `Pattern` (7), `ContextPattern` (9),
 `writer.Summary` (13) via explicit field copies in `run` (16). `match.OutputConfig`
 (2) threads through `Opts` (13) into both writers (13, 14).
 
-**Amendment — shared plain `OutputConfig`.** Tasks 3 and 10 each define a local
-`plainOutput`/`plainOutputConfig` closure so filters can read a match's raw
-value. That is duplicated and awkward. Implement it once instead, in Task 2's
-`match/rakematch.go`:
+**Self-review corrections — ALL APPLIED INLINE above (2026-07-29).** The six
+issues found reviewing this plan have been fixed in the task bodies themselves,
+so the task text is authoritative and implementers need no separate errata:
 
-```go
-// PlainOutput is a non-secure, nothing-disabled configuration used when a
-// filter needs to inspect a match's real value. Filtering runs before output
-// is configured, and a filter must see the actual secret to judge it.
-// Safe to share: OutputConfig is immutable.
-var PlainOutput = NewOutputConfig(false, false, false)
-```
+1. A shared `match.PlainOutput` replaces the duplicated `plainOutput` /
+   `plainOutputConfig` closures — declared once in Task 2, consumed in Tasks 3,
+   10 and 11.
+2. Task 16's smoke test now runs `mkdir -p` before the redirect into it.
+3. Task 12's `ctxFor` test helper no longer declares an unused variable.
+4. Task 15's `ctx` helper is variadic, so both `ctx(n, e)` and `ctx(n, e, 1)`
+   compile.
+5. Task 10's TLD test uses `strings.Repeat("a", 64)`.
+6. Task 12's `RakeSet.Add` type switch is a two-case switch with a default,
+   and reports a part/interface mismatch rather than falling through silently.
 
-Then in Task 3 delete the `plainOutput` closure from `regexfilter.go` and use
-`match.PlainOutput` in both `literalfilter.go` and `regexfilter.go`; in Task 10
-delete the `plainOutputConfig` closure from `rake.go` and use `match.PlainOutput`
-in `rakehostname.go`, `rakeemail.go`, `rakebasicauth.go` and `rakejwtauth.go`
-(replacing the `plainOutputConfig()` call sites). Add to Task 2's tests:
-
-```go
-func TestPlainOutputExposesValueAndContext(t *testing.T) {
-	m := New(fakeRake{"t", "d", "LOW"}, "f", intp(1))
-	m.SetValue("hunter2", 0, -1)
-	if v := m.Value(PlainOutput); v == nil || *v != "hunter2" {
-		t.Errorf("PlainOutput must expose the real value, got %v", v)
-	}
-}
-```
-
-**Placeholder scan.** One defect found and corrected: Task 16 Step 5 had a
-`printf` redirect into `/tmp/dr-smoke/` before the `mkdir -p`. The corrected
-order is:
-
-```bash
-mkdir -p /tmp/dr-smoke
-printf 'username=jeffw\npassword=Sup3rSekrit!\n' > /tmp/dr-smoke/project.properties
-./bin/datarake -f json -u /tmp/dr-smoke
-```
-
-A second: Task 12's test file defines `ctxFor` with an unused variable in the
-extension loop (`if i := len(name) - 1; i >= 0`). Replace that block with:
-
-```go
-	ext, has := "", false
-	for j := len(name) - 1; j >= 0; j-- {
-		if name[j] == '.' {
-			ext, has = name[j+1:], true
-			break
-		}
-	}
-```
-
-A third: Task 15's `yamlrakes_test.go` calls `ctx(name, ext, 1)` and
-`ctx("README.md", "md")`. Declare it variadic as noted in that task:
-
-```go
-func ctx(name, ext string, line ...int) *walker.Context {
-	n := 1
-	if len(line) > 0 {
-		n = line[0]
-	}
-	has := ext != ""
-	return &walker.Context{
-		BasePath: "/src", Path: "/src", Filename: name,
-		FullPath: "/src/" + name, FileType: ext, HasFileType: has,
-		LineNo: &n,
-	}
-}
-```
-
-A fourth: Task 10's `TestIsValidHostname` builds `long` with a loop; use
-`strings.Repeat("a", 64)` and import `strings`.
-
-A fifth: Task 12's `RakeSet.Add` type switch is redundant — a `ContentRake` and a
-`MetaRake` have disjoint method sets (`Match`/`Filter` versus `MatchContext`), so
-the trailing re-check is dead. Simplify to a two-case switch with a default
-error, and keep the `Part()` guard.

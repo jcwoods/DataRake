@@ -5,3 +5,8 @@ review.md
 build/
 dist/
 *.egg-info/
+# SDD scratch workspace (ledgers, briefs, review packages)
+.superpowers/
+
+# Go build output
+golang/bin/

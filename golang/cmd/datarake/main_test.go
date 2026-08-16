@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"os"
 	"strings"
 	"testing"
+
+	datarake "github.com/jcwoods/datarake/golang"
 )
 
 func TestParseDefaults(t *testing.T) {
@@ -122,11 +126,88 @@ func TestParseMatchTimeout(t *testing.T) {
 	}
 }
 
+func TestParseInitConfig(t *testing.T) {
+	o, err := parseCmdLine([]string{"datarake", "--init-config"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !o.initConfig {
+		t.Error("--init-config must set initConfig")
+	}
+}
+
+// chdirTemp switches to a fresh temp directory for the duration of the test.
+func chdirTemp(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunInitConfigWritesEmbeddedConfig(t *testing.T) {
+	chdirTemp(t)
+
+	o, err := parseCmdLine([]string{"datarake", "--init-config"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := run(o)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if code != 0 {
+		t.Errorf("exit code: got %d want 0", code)
+	}
+
+	got, err := os.ReadFile("datarake.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, datarake.DefaultConfig) {
+		t.Error("written config must match the embedded default")
+	}
+}
+
+func TestRunInitConfigRefusesToOverwrite(t *testing.T) {
+	chdirTemp(t)
+
+	const existing = "custom: true\n"
+	if err := os.WriteFile("datarake.yaml", []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	o, err := parseCmdLine([]string{"datarake", "--init-config"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := run(o)
+	if err == nil {
+		t.Error("run must refuse to overwrite an existing datarake.yaml")
+	}
+	if code == 0 {
+		t.Error("exit code must be non-zero on refusal")
+	}
+
+	got, err := os.ReadFile("datarake.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != existing {
+		t.Error("existing file must not be modified")
+	}
+}
+
 func TestUsageMentionsEveryFlag(t *testing.T) {
 	usage := usageString()
 	for _, f := range []string{
 		"--format", "--output", "--secure", "--disable-context", "--disable-value",
-		"--summary", "--quiet", "--verbose", "--jobs", "--config", "--match-timeout",
+		"--summary", "--quiet", "--verbose", "--jobs", "--config", "--init-config", "--match-timeout",
 	} {
 		if !strings.Contains(usage, f) {
 			t.Errorf("usage must document %s:\n%s", f, usage)

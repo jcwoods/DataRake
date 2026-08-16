@@ -36,6 +36,7 @@ type options struct {
 
 	jobs         int
 	configPath   string
+	initConfig   bool
 	matchTimeout time.Duration
 }
 
@@ -72,6 +73,8 @@ func newFlagSet(o *options) *pflag.FlagSet {
 		"Number of workers used to scan files (default: CPU count)")
 	fs.StringVarP(&o.configPath, "config", "c", "",
 		"Configuration file (defaults to the bundled datarake.yaml)")
+	fs.BoolVar(&o.initConfig, "init-config", false,
+		"Write the embedded default configuration to ./datarake.yaml and exit")
 	fs.DurationVar(&o.matchTimeout, "match-timeout", time.Second,
 		"Per-line regex match timeout; regexp2 backtracks, so this bounds it")
 
@@ -139,7 +142,30 @@ type job struct {
 	done     chan struct{}
 }
 
+// initConfigFileName is the file written by --init-config.
+const initConfigFileName = "datarake.yaml"
+
+// writeInitConfig writes the embedded default configuration to
+// initConfigFileName in the current directory, refusing to clobber a file
+// that is already there.
+func writeInitConfig() (int, error) {
+	if _, err := os.Stat(initConfigFileName); err == nil {
+		return 1, fmt.Errorf("%s already exists; not overwriting", initConfigFileName)
+	} else if !os.IsNotExist(err) {
+		return 1, fmt.Errorf("stat %s: %w", initConfigFileName, err)
+	}
+	if err := os.WriteFile(initConfigFileName, datarake.DefaultConfig, 0o644); err != nil {
+		return 1, fmt.Errorf("write %s: %w", initConfigFileName, err)
+	}
+	fmt.Printf("wrote %s\n", initConfigFileName)
+	return 0, nil
+}
+
 func run(o *options) (int, error) {
+	if o.initConfig {
+		return writeInitConfig()
+	}
+
 	oc := match.NewOutputConfig(o.secure, o.disableContext, o.disableValue)
 
 	var cfg *config.Config
